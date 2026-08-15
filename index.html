@@ -350,6 +350,49 @@
   .result-panel.preview-hidden{
     display:none;
   }
+  .preview-panel{
+    display:none;
+  }
+  .preview-panel.visible{
+    display:block;
+  }
+  .preview-wrap canvas{
+    cursor:default;
+    background:var(--panel-2);
+  }
+  .stamp-controls{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    align-items:center;
+    margin-top:16px;
+    padding-top:16px;
+    border-top:1px solid var(--border-soft);
+  }
+  .stamp-controls input[type=file]{
+    display:none;
+  }
+  .stamp-controls .field{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    font:500 .72rem var(--font-mono);
+    color:var(--text-dim);
+  }
+  .stamp-controls input[type=number]{
+    width:72px;
+  }
+  .stamp-status{
+    flex:1 1 100%;
+    color:var(--text-faint);
+    font:500 .7rem var(--font-mono);
+  }
+  .canvas-screen-note{
+    color:var(--text-dim);
+    font-size:.82rem;
+    line-height:1.45;
+    margin:-2px 0 12px;
+  }
   .preview-badge{
     display:none;
     margin-top:10px;
@@ -357,6 +400,23 @@
     color:var(--guide);
   }
 
+  /* SVG stamp library */
+  .stamp-controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border-soft)}
+  .scale-control{display:flex;align-items:center;gap:7px;color:var(--text-dim);font:500 .75rem var(--font-mono)}
+  .scale-control input{width:78px;font:500 .82rem var(--font-mono);background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 8px}
+  .stamp-library{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-top:16px}
+  .stamp-card{min-height:110px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);padding:8px;cursor:pointer;color:var(--text);text-align:left}
+  .stamp-card:hover{border-color:var(--text-dim)}
+  .stamp-card.active{border-color:var(--guide);box-shadow:0 0 0 1px rgba(94,234,212,.25) inset}
+  .stamp-thumb{height:78px;display:flex;align-items:center;justify-content:center;background:#faf9f5;border-radius:5px;overflow:hidden}
+  .stamp-thumb svg{max-width:90%;max-height:90%;width:auto;height:auto}
+  .stamp-name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-top:6px;font:500 .68rem var(--font-mono);color:var(--text-dim)}
+  .stamp-library-empty{grid-column:1/-1;color:var(--text-faint);font:500 .75rem var(--font-mono);padding:12px 0}
+  .stamp-mode-on{outline:2px solid var(--guide);outline-offset:2px}
+  .svg-canvas-wrap{width:min(100%,560px);aspect-ratio:1/1}
+  .svg-canvas{position:relative;width:100%;height:100%;background:#faf9f5;overflow:hidden;cursor:crosshair}
+  .svg-canvas:after{content:"";position:absolute;inset:0;border:1px solid #121110;pointer-events:none}
+  .svg-stamp{position:absolute;transform:translate(-50%,-50%);pointer-events:none;user-select:none}
   @media (prefers-reduced-motion: reduce){
     *{ transition: none !important; animation: none !important; }
   }
@@ -403,37 +463,43 @@
         <button class="btn primary" id="confirmCornersBtn">Confirm corners</button>
       </div>
       <div class="controls-row">
-        <label for="outputSize">Output size
-          <input type="number" id="outputSize" value="800" min="100" max="3000" step="50"> px
-        </label>
         <button class="btn" id="resetPointsBtn">Reset points</button>
         <button class="btn" id="newImageBtn">Upload different image</button>
       </div>
     </div>
 
+    <!-- Live square preview while marking corners -->
+    <div class="panel preview-panel" id="previewPanel">
+      <div class="panel-eyebrow">PREVIEW</div>
+      <h2>Selected square</h2>
+      <p class="hint">This is the flattened 12 × 12 in area you will work on. It updates as you adjust the corners.</p>
+      <div class="canvas-wrap preview-wrap">
+        <canvas id="previewCanvas"></canvas>
+      </div>
+      <div class="result-meta" id="previewMeta"></div>
+    </div>
+
     <!-- Result panel -->
     <div class="panel result-panel preview-hidden" id="resultPanel">
-      <div class="panel-eyebrow">02 / 03 — WARP &amp; DRAW</div>
-      <h2>Your square canvas</h2>
-      <p class="hint" id="resultHint">Place all four points to generate the square.</p>
-      <div class="canvas-wrap result-wrap" id="resultWrap">
-        <div class="empty-square" id="emptySquare">square<br>appears<br>here</div>
-        <canvas id="resultCanvas" style="display:none;"></canvas>
+      <div class="panel-eyebrow">02 — PLACE STAMPS</div>
+      <h2>Your 12 × 12 in canvas</h2>
+      <p class="hint" id="resultHint">Upload SVG shapes, choose one from the stamp list, set its scale, then click the canvas to place it.</p>
+      <div class="canvas-wrap svg-canvas-wrap">
+        <div id="svgCanvas" class="svg-canvas" aria-label="12 by 12 inch canvas"></div>
       </div>
-      <div class="result-meta" id="resultMeta"></div>
-
-      <div class="toolbar" id="drawToolbar">
-        <button class="btn tool active" data-tool="pen" id="penToolBtn">Pen</button>
-        <button class="btn tool" data-tool="eraser" id="eraserToolBtn">Eraser</button>
-        <input type="color" id="penColor" value="#f2a93b" title="Color">
-        <label class="size-control">Size
-          <input type="range" id="penSize" min="1" max="60" value="6">
+      <div class="result-meta" id="resultMeta">12 × 12 in · SVG output</div>
+      <div class="stamp-controls">
+        <input id="svgInput" type="file" accept=".svg,image/svg+xml" multiple hidden>
+        <button class="btn" id="uploadSvgBtn">Upload SVG shapes</button>
+        <label class="scale-control">Scale
+          <input type="number" id="stampScale" value="1" min="0.01" max="100" step="0.01"> ×
         </label>
-        <div class="spacer"></div>
-        <button class="btn" id="undoBtn">Undo</button>
-        <button class="btn" id="clearDrawBtn">Clear drawing</button>
+        <button class="btn primary" id="stampModeBtn" disabled>Stamp selected</button>
         <button class="btn" id="remarkCornersBtn">Remark corners</button>
-        <button class="btn primary" id="downloadBtn">Download PNG</button>
+        <button class="btn primary" id="downloadBtn">Download SVG</button>
+      </div>
+      <div class="stamp-library" id="stampLibrary">
+        <div class="stamp-library-empty" id="stampLibraryEmpty">No SVG stamps uploaded yet.</div>
       </div>
     </div>
 
@@ -470,11 +536,13 @@
   let dashOffset = 0;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  let baseResultImageData = null; // snapshot right after warp, used by "Clear drawing"
-  let undoStack = [];
-  let currentTool = 'pen';
-  let isDrawingStroke = false;
-  let lastDrawPoint = null;
+  let stampMode = false;
+  let stamps = [];
+  let selectedStampIndex = -1;
+  let placedStamps = [];
+  const CANVAS_INCHES = 12;
+  const SVG_PX_PER_INCH = 96;
+  const CANVAS_PX = CANVAS_INCHES * SVG_PX_PER_INCH;
 
   /* =========================================================
      DOM REFS
@@ -496,25 +564,24 @@
   const magnifierCanvas = document.getElementById('magnifierCanvas');
   const magnifierCtx    = magnifierCanvas.getContext('2d');
 
-  const outputSizeInput = document.getElementById('outputSize');
+  const previewPanel = document.getElementById('previewPanel');
+  const previewCanvas = document.getElementById('previewCanvas');
+  const previewCtx = previewCanvas.getContext('2d');
+  const previewMeta = document.getElementById('previewMeta');
   const resetPointsBtn  = document.getElementById('resetPointsBtn');
   const newImageBtn     = document.getElementById('newImageBtn');
 
-  const resultCanvas   = document.getElementById('resultCanvas');
-  const resultCtx      = resultCanvas.getContext('2d');
   const resultHint     = document.getElementById('resultHint');
   const resultMeta     = document.getElementById('resultMeta');
-  const emptySquare    = document.getElementById('emptySquare');
-
-  const drawToolbar    = document.getElementById('drawToolbar');
-  const penToolBtn      = document.getElementById('penToolBtn');
-  const eraserToolBtn  = document.getElementById('eraserToolBtn');
-  const penColorInput  = document.getElementById('penColor');
-  const penSizeInput   = document.getElementById('penSize');
-  const undoBtn        = document.getElementById('undoBtn');
-  const clearDrawBtn   = document.getElementById('clearDrawBtn');
+  const svgCanvas      = document.getElementById('svgCanvas');
+  const svgInput       = document.getElementById('svgInput');
+  const uploadSvgBtn   = document.getElementById('uploadSvgBtn');
+  const stampScaleInput= document.getElementById('stampScale');
+  const stampModeBtn   = document.getElementById('stampModeBtn');
   const remarkCornersBtn = document.getElementById('remarkCornersBtn');
   const downloadBtn    = document.getElementById('downloadBtn');
+  const stampLibrary   = document.getElementById('stampLibrary');
+  const stampLibraryEmpty = document.getElementById('stampLibraryEmpty');
 
   const stageAlign     = document.getElementById('stageAlign');
   const stageWarp      = document.getElementById('stageWarp');
@@ -572,11 +639,14 @@
     const dScale = Math.min(DISPLAY_MAX_W / img.naturalWidth, DISPLAY_MAX_H / img.naturalHeight);
     sourceCanvas.width  = Math.max(1, Math.round(img.naturalWidth * dScale));
     sourceCanvas.height = Math.max(1, Math.round(img.naturalHeight * dScale));
+    previewCanvas.width = 720;
+    previewCanvas.height = 720;
 
     points = [];
     confirmedCorners = false;
     stopAnim();
     resetResult();
+    resetStamps();
     showAlignScreen();
     setStage('align');
     dropzone.style.display = 'none';
@@ -615,7 +685,11 @@
 
       const labels = ['TL', 'TR', 'BR', 'BL'];
       ordered.forEach((p, i) => drawHandle(p, labels[i]));
+      if (!confirmedCorners) {
+        previewPanel.classList.add('visible');
+      }
     } else {
+      previewPanel.classList.remove('visible');
       points.forEach(p => drawHandle(p, null));
     }
   }
@@ -709,6 +783,7 @@
       y: clamp(pos.y, 0, sourceCanvas.height)
     };
     showMagnifier(points[draggingIndex], e.clientX, e.clientY);
+    if (points.length === 4 && !confirmedCorners) renderSquarePreview();
   });
 
   function finishDrag(){
@@ -778,11 +853,14 @@
     resultPanel.classList.add('preview-hidden');
     previewActions.style.display = points.length === 4 ? 'flex' : 'none';
     previewBadge.style.display = points.length === 4 ? 'block' : 'none';
+    previewPanel.classList.toggle('visible', points.length === 4);
+    if (points.length === 4) renderSquarePreview();
   }
 
   function showCanvasScreen(){
     confirmedCorners = true;
     sourcePanel.classList.add('confirmed');
+    previewPanel.classList.remove('visible');
     resultPanel.classList.remove('preview-hidden');
   }
 
@@ -838,14 +916,6 @@
     performWarp();
   });
 
-  outputSizeInput.addEventListener('change', () => {
-    let v = parseInt(outputSizeInput.value, 10);
-    if (isNaN(v)) v = 800;
-    v = clamp(v, 100, 3000);
-    outputSizeInput.value = v;
-    if (points.length === 4) performWarp();
-  });
-
   /* =========================================================
      HOMOGRAPHY MATH (projective transform from 4 point pairs)
      ========================================================= */
@@ -896,175 +966,190 @@
   }
 
   /* =========================================================
-     WARP EXECUTION
+     SQUARE PREVIEW
+     ========================================================= */
+
+  function renderSquarePreview(){
+    if (points.length !== 4 || !processImageData) return;
+    const size = 720;
+    previewCanvas.width = size;
+    previewCanvas.height = size;
+    const scaleX = processCanvas.width / sourceCanvas.width;
+    const scaleY = processCanvas.height / sourceCanvas.height;
+    const srcPts = points.map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
+    const ordered = orderPoints(srcPts);
+    const dstSquare = [
+      {x:0,y:0},{x:size,y:0},{x:size,y:size},{x:0,y:size}
+    ];
+    const H = computeHomography(dstSquare, ordered);
+    const out = previewCtx.createImageData(size, size);
+    warpImage(processImageData, out, H, size);
+    previewCtx.putImageData(out, 0, 0);
+    previewMeta.textContent = 'Live preview · final canvas: 12 × 12 in';
+  }
+
+  /* =========================================================
+     WARP + SVG STAMPS
      ========================================================= */
 
   function performWarp(){
     if (points.length !== 4 || !processImageData) return;
-    setStage('warp');
-    resultHint.textContent = 'Warping…';
-
-    // Defer one tick so the "Warping…" message actually paints before the
-    // (synchronous, single-threaded) pixel loop runs.
+    resultHint.textContent = 'Preparing your 12 × 12 in canvas…';
     setTimeout(() => {
-      const outputSize = clamp(parseInt(outputSizeInput.value, 10) || 800, 100, 3000);
-      resultCanvas.width = outputSize;
-      resultCanvas.height = outputSize;
-
-      // Convert display-space points into process-canvas-space points.
-      const scaleX = processCanvas.width / sourceCanvas.width;
-      const scaleY = processCanvas.height / sourceCanvas.height;
-      const srcPts = points.map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
-      const ordered = orderPoints(srcPts); // [tl, tr, br, bl] in process-canvas space
-
-      const dstSquare = [
-        { x: 0, y: 0 },
-        { x: outputSize, y: 0 },
-        { x: outputSize, y: outputSize },
-        { x: 0, y: outputSize }
-      ];
-
-      // H maps a point in the OUTPUT square to the corresponding point in
-      // the PROCESS-canvas source image — exactly what we need to resample.
-      const H = computeHomography(dstSquare, ordered);
-
-      const outImageData = resultCtx.createImageData(outputSize, outputSize);
-      warpImage(processImageData, outImageData, H, outputSize);
-      resultCtx.putImageData(outImageData, 0, 0);
-
-      baseResultImageData = resultCtx.getImageData(0, 0, outputSize, outputSize);
-      undoStack = [];
-
-      emptySquare.style.display = 'none';
-      resultCanvas.style.display = 'block';
-      drawToolbar.style.display = 'flex';
-      resultHint.textContent = 'Square ready — draw on it below, then download.';
-      resultMeta.textContent = `${outputSize} × ${outputSize} px`;
+      // The photo is deliberately NOT retained in the working canvas. It is
+      // used only to let the user verify the selected material area.
+      placedStamps = [];
+      renderSvgCanvas();
+      resultHint.textContent = 'Choose a stamp, set its scale, click “Stamp selected”, then click the canvas.';
+      resultMeta.textContent = '12 × 12 in · SVG output · original image excluded';
       setStage('draw');
     }, 10);
   }
 
-  function warpImage(srcImageData, dstImageData, H, size){
-    const sw = srcImageData.width, sh = srcImageData.height;
-    const sData = srcImageData.data, dData = dstImageData.data;
+  function resetResult(){
+    placedStamps = [];
+    stampMode = false;
+    svgCanvas.innerHTML = '';
+    resultHint.textContent = 'Confirm the corners to create the 12 × 12 in canvas.';
+    resultMeta.textContent = '12 × 12 in · SVG output';
+    updateStampModeButton();
+  }
 
-    for (let y = 0; y < size; y++){
-      for (let x = 0; x < size; x++){
-        const s = applyHomography(H, x + 0.5, y + 0.5);
-        const di = (y * size + x) * 4;
+  uploadSvgBtn.addEventListener('click', () => svgInput.click());
 
-        if (s.x >= 0 && s.x < sw - 1 && s.y >= 0 && s.y < sh - 1){
-          // Bilinear interpolation.
-          const x0 = Math.floor(s.x), y0 = Math.floor(s.y);
-          const fx = s.x - x0, fy = s.y - y0;
-          const i00 = (y0 * sw + x0) * 4;
-          const i10 = (y0 * sw + x0 + 1) * 4;
-          const i01 = ((y0 + 1) * sw + x0) * 4;
-          const i11 = ((y0 + 1) * sw + x0 + 1) * 4;
-          for (let c = 0; c < 4; c++){
-            const top = sData[i00 + c] * (1 - fx) + sData[i10 + c] * fx;
-            const bot = sData[i01 + c] * (1 - fx) + sData[i11 + c] * fx;
-            dData[di + c] = top * (1 - fy) + bot * fy;
-          }
-        } else if (s.x >= -1 && s.x < sw + 1 && s.y >= -1 && s.y < sh + 1){
-          // Just outside — clamp to the nearest edge pixel to avoid seams.
-          const cx = clamp(Math.round(s.x), 0, sw - 1);
-          const cy = clamp(Math.round(s.y), 0, sh - 1);
-          const si = (cy * sw + cx) * 4;
-          for (let c = 0; c < 4; c++) dData[di + c] = sData[si + c];
-        } else {
-          dData[di + 3] = 0; // fully outside the source image -> transparent
-        }
-      }
+  svgInput.addEventListener('change', async () => {
+    const files = Array.from(svgInput.files || []);
+    for (const file of files){
+      try {
+        const text = await file.text();
+        const parsed = parseSvg(text);
+        if (!parsed) throw new Error('Invalid SVG: it needs a usable viewBox or width/height.');
+        stamps.push({name:file.name, text:parsed.text, viewBox:parsed.viewBox, scale:1});
+      } catch(err) { console.warn(err); }
+    }
+    svgInput.value='';
+    renderStampLibrary();
+    if (selectedStampIndex < 0 && stamps.length) selectStamp(0);
+  });
+
+  function parseSvg(text){
+    const doc = new DOMParser().parseFromString(text,'image/svg+xml');
+    const svg = doc.documentElement;
+    if (!svg || svg.nodeName.toLowerCase() !== 'svg' || doc.querySelector('parsererror')) return null;
+    let vb = svg.getAttribute('viewBox');
+    if (vb) vb = vb.trim().split(/[ ,]+/).map(Number);
+    if (!vb || vb.length!==4 || vb.some(n=>!Number.isFinite(n)) || vb[2]<=0 || vb[3]<=0){
+      const w=parseFloat(svg.getAttribute('width')), h=parseFloat(svg.getAttribute('height'));
+      if (!(w>0 && h>0)) return null;
+      vb=[0,0,w,h];
+    }
+    // Make a clean self-contained copy and remove scripting/event handlers.
+    svg.querySelectorAll('script').forEach(n=>n.remove());
+    svg.querySelectorAll('*').forEach(n=>[...n.attributes].forEach(a=>{if(/^on/i.test(a.name))n.removeAttribute(a.name)}));
+    return {text:new XMLSerializer().serializeToString(svg),viewBox:vb};
+  }
+
+  function selectStamp(index){
+    selectedStampIndex=index;
+    stampScaleInput.value=stamps[index]?.scale ?? 1;
+    renderStampLibrary();
+  }
+
+  function renderStampLibrary(){
+    stampLibrary.innerHTML='';
+    if (!stamps.length){ stampLibrary.appendChild(stampLibraryEmpty); stampModeBtn.disabled=true; return; }
+    stamps.forEach((stamp,i)=>{
+      const card=document.createElement('button'); card.type='button';
+      card.className='stamp-card'+(i===selectedStampIndex?' active':'');
+      const thumb=document.createElement('div'); thumb.className='stamp-thumb';
+      thumb.appendChild(svgElement(stamp.text));
+      const name=document.createElement('div'); name.className='stamp-name'; name.textContent=stamp.name;
+      card.append(thumb,name); card.onclick=()=>selectStamp(i); stampLibrary.appendChild(card);
+    });
+    stampModeBtn.disabled=selectedStampIndex<0;
+  }
+
+  function svgElement(text){
+    const doc=new DOMParser().parseFromString(text,'image/svg+xml');
+    const el=document.importNode(doc.documentElement,true);
+    el.removeAttribute('width'); el.removeAttribute('height');
+    el.setAttribute('preserveAspectRatio','xMidYMid meet');
+    return el;
+  }
+
+  stampScaleInput.addEventListener('input',()=>{
+    if(selectedStampIndex<0)return;
+    let v=Number(stampScaleInput.value); if(!Number.isFinite(v)||v<=0)v=1;
+    v=clamp(v,.01,100); stampScaleInput.value=v; stamps[selectedStampIndex].scale=v;
+  });
+
+  stampModeBtn.addEventListener('click',()=>{
+    if(selectedStampIndex<0)return;
+    stampMode=!stampMode; updateStampModeButton();
+  });
+
+  function updateStampModeButton(){
+    stampModeBtn.disabled=selectedStampIndex<0;
+    stampModeBtn.classList.toggle('stamp-mode-on',stampMode);
+    stampModeBtn.textContent=stampMode?'Stamping — click canvas':'Stamp selected';
+    svgCanvas.style.cursor=stampMode?'copy':'crosshair';
+  }
+
+  svgCanvas.addEventListener('click',e=>{
+    if(!stampMode||selectedStampIndex<0)return;
+    const rect=svgCanvas.getBoundingClientRect();
+    const x=(e.clientX-rect.left)/rect.width*CANVAS_PX;
+    const y=(e.clientY-rect.top)/rect.height*CANVAS_PX;
+    placedStamps.push({stampIndex:selectedStampIndex,x,y,scale:stamps[selectedStampIndex].scale});
+    renderSvgCanvas();
+  });
+
+  function renderSvgCanvas(){
+    svgCanvas.innerHTML='';
+    for(const p of placedStamps){
+      const stamp=stamps[p.stampIndex]; if(!stamp)continue;
+      const [, , vw, vh]=stamp.viewBox;
+      const el=svgElement(stamp.text); el.classList.add('svg-stamp');
+      el.style.left=`${p.x}px`; el.style.top=`${p.y}px`;
+      el.style.width=`${vw*p.scale}px`; el.style.height=`${vh*p.scale}px`;
+      svgCanvas.appendChild(el);
     }
   }
 
-  function resetResult(){
-    resultCanvas.style.display = 'none';
-    emptySquare.style.display = 'flex';
-    drawToolbar.style.display = 'none';
-    resultHint.textContent = 'Place all four points to generate the square.';
-    resultMeta.textContent = '';
-    baseResultImageData = null;
-    undoStack = [];
+  remarkCornersBtn.addEventListener('click',()=>{
+    stampMode=false; updateStampModeButton();
+    showAlignScreen(); setStage('align'); redrawSource(); updateSourceHint();
+  });
+
+  function buildExportSvg(){
+    const NS='http://www.w3.org/2000/svg';
+    const doc=document.implementation.createDocument(NS,'svg',null);
+    const root=doc.documentElement;
+    root.setAttribute('xmlns',NS); root.setAttribute('width','12in'); root.setAttribute('height','12in');
+    root.setAttribute('viewBox',`0 0 ${CANVAS_PX} ${CANVAS_PX}`);
+    const border=doc.createElementNS(NS,'rect');
+    border.setAttribute('x','.5'); border.setAttribute('y','.5'); border.setAttribute('width',CANVAS_PX-1); border.setAttribute('height',CANVAS_PX-1);
+    border.setAttribute('fill','none'); border.setAttribute('stroke','black'); border.setAttribute('stroke-width','1'); root.appendChild(border);
+    for(const p of placedStamps){
+      const stamp=stamps[p.stampIndex]; if(!stamp)continue;
+      const [vx,vy,vw,vh]=stamp.viewBox;
+      const parsed=new DOMParser().parseFromString(stamp.text,'image/svg+xml');
+      const source=parsed.documentElement;
+      const group=doc.createElementNS(NS,'g');
+      group.setAttribute('transform',`translate(${p.x} ${p.y}) scale(${p.scale}) translate(${-vx} ${-vy})`);
+      for(const child of [...source.childNodes]) group.appendChild(doc.importNode(child,true));
+      root.appendChild(group);
+    }
+    return '<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(root);
   }
 
-  /* =========================================================
-     RESULT CANVAS — drawing tools ("further work" surface)
-     ========================================================= */
-
-  function getResultPos(evt){ return getCanvasPos(resultCanvas, evt); }
-
-  function pushUndo(){
-    undoStack.push(resultCtx.getImageData(0, 0, resultCanvas.width, resultCanvas.height));
-    if (undoStack.length > 20) undoStack.shift();
-  }
-
-  function strokeSegment(from, to){
-    resultCtx.save();
-    resultCtx.lineCap = 'round';
-    resultCtx.lineJoin = 'round';
-    resultCtx.lineWidth = Number(penSizeInput.value);
-    resultCtx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : 'source-over';
-    resultCtx.strokeStyle = penColorInput.value;
-    resultCtx.beginPath();
-    resultCtx.moveTo(from.x, from.y);
-    resultCtx.lineTo(to.x, to.y);
-    resultCtx.stroke();
-    resultCtx.restore();
-  }
-
-  resultCanvas.addEventListener('pointerdown', (e) => {
-    if (!baseResultImageData) return;
-    pushUndo();
-    isDrawingStroke = true;
-    lastDrawPoint = getResultPos(e);
-    strokeSegment(lastDrawPoint, lastDrawPoint);
-    resultCanvas.setPointerCapture(e.pointerId);
-  });
-  resultCanvas.addEventListener('pointermove', (e) => {
-    if (!isDrawingStroke) return;
-    const pos = getResultPos(e);
-    strokeSegment(lastDrawPoint, pos);
-    lastDrawPoint = pos;
-  });
-  function endStroke(){ isDrawingStroke = false; lastDrawPoint = null; }
-  resultCanvas.addEventListener('pointerup', endStroke);
-  resultCanvas.addEventListener('pointercancel', endStroke);
-  resultCanvas.addEventListener('pointerleave', endStroke);
-
-  function setTool(tool){
-    currentTool = tool;
-    penToolBtn.classList.toggle('active', tool === 'pen');
-    eraserToolBtn.classList.toggle('active', tool === 'eraser');
-  }
-  penToolBtn.addEventListener('click', () => setTool('pen'));
-  eraserToolBtn.addEventListener('click', () => setTool('eraser'));
-
-  undoBtn.addEventListener('click', () => {
-    if (undoStack.length === 0) return;
-    resultCtx.putImageData(undoStack.pop(), 0, 0);
+  downloadBtn.addEventListener('click',()=>{
+    const blob=new Blob([buildExportSvg()],{type:'image/svg+xml;charset=utf-8'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=url; a.download='cricut-12x12.svg'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
 
-  clearDrawBtn.addEventListener('click', () => {
-    if (!baseResultImageData) return;
-    pushUndo();
-    resultCtx.putImageData(baseResultImageData, 0, 0);
-  });
-
-  remarkCornersBtn.addEventListener('click', () => {
-    showAlignScreen();
-    setStage('align');
-    redrawSource();
-    updateSourceHint();
-  });
-
-  downloadBtn.addEventListener('click', () => {
-    const link = document.createElement('a');
-    link.download = 'square-crop.png';
-    link.href = resultCanvas.toDataURL('image/png');
-    link.click();
-  });
+  function resetStamps(){ stamps=[]; selectedStampIndex=-1; placedStamps=[]; stampMode=false; stampScaleInput.value=1; renderStampLibrary(); }
 
   /* =========================================================
      STAGE INDICATOR
