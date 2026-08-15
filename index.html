@@ -415,8 +415,20 @@
   .stamp-mode-on{outline:2px solid var(--guide);outline-offset:2px}
   .svg-canvas-wrap{width:min(100%,560px);aspect-ratio:1/1}
   .svg-canvas{position:relative;width:100%;height:100%;background:#faf9f5;overflow:hidden;cursor:crosshair}
-  .svg-canvas:after{content:"";position:absolute;inset:0;border:1px solid #121110;pointer-events:none}
-  .svg-stamp{position:absolute;transform:translate(-50%,-50%);pointer-events:none;user-select:none}
+  .svg-canvas:after{content:"";position:absolute;inset:0;border:1px solid #121110;pointer-events:none;z-index:3}
+
+  /* Reference photo — visual guide only, always excluded from SVG export */
+  .reference-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;z-index:0}
+  .reference-photo.hidden{display:none}
+
+  #stampLayer{position:absolute;inset:0;pointer-events:none;z-index:1}
+
+  .stamp-wrapper{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;cursor:pointer;user-select:none}
+  .stamp-wrapper svg{width:100%;height:100%;display:block;pointer-events:none}
+  .stamp-wrapper.selected{outline:2px dashed var(--guide);outline-offset:4px;border-radius:2px}
+
+  .stamp-ghost{position:absolute;transform:translate(-50%,-50%);pointer-events:none;opacity:.5;z-index:2}
+  .stamp-ghost svg{width:100%;height:100%;display:block}
   @media (prefers-reduced-motion: reduce){
     *{ transition: none !important; animation: none !important; }
   }
@@ -485,16 +497,22 @@
       <h2>Your 12 × 12 in canvas</h2>
       <p class="hint" id="resultHint">Upload SVG shapes, choose one from the stamp list, set its scale, then click the canvas to place it.</p>
       <div class="canvas-wrap svg-canvas-wrap">
-        <div id="svgCanvas" class="svg-canvas" aria-label="12 by 12 inch canvas"></div>
+        <div id="svgCanvas" class="svg-canvas" aria-label="12 by 12 inch canvas">
+          <img id="referencePhoto" class="reference-photo" alt="Squared reference photo (not included in the export)">
+          <div id="stampLayer"></div>
+          <div id="stampGhost" class="stamp-ghost" hidden></div>
+        </div>
       </div>
       <div class="result-meta" id="resultMeta">12 × 12 in · SVG output</div>
       <div class="stamp-controls">
         <input id="svgInput" type="file" accept=".svg,image/svg+xml" multiple hidden>
         <button class="btn" id="uploadSvgBtn">Upload SVG shapes</button>
         <label class="scale-control">Scale
-          <input type="number" id="stampScale" value="1" min="0.01" max="100" step="0.01"> ×
+          <input type="number" id="stampScale" value="100" min="1" max="1000" step="1"> %
         </label>
         <button class="btn primary" id="stampModeBtn" disabled>Stamp selected</button>
+        <button class="btn" id="deleteStampBtn" disabled>Delete stamp</button>
+        <button class="btn" id="toggleRefBtn">Hide reference photo</button>
         <button class="btn" id="remarkCornersBtn">Remark corners</button>
         <button class="btn primary" id="downloadBtn">Download SVG</button>
       </div>
@@ -540,6 +558,9 @@
   let stamps = [];
   let selectedStampIndex = -1;
   let placedStamps = [];
+  let selectedPlacedId = null;
+  let placedIdCounter = 0;
+  let referenceVisible = true;
   const CANVAS_INCHES = 12;
   const SVG_PX_PER_INCH = 96;
   const CANVAS_PX = CANVAS_INCHES * SVG_PX_PER_INCH;
@@ -574,10 +595,15 @@
   const resultHint     = document.getElementById('resultHint');
   const resultMeta     = document.getElementById('resultMeta');
   const svgCanvas      = document.getElementById('svgCanvas');
+  const referencePhoto = document.getElementById('referencePhoto');
+  const stampLayer     = document.getElementById('stampLayer');
+  const stampGhost     = document.getElementById('stampGhost');
   const svgInput       = document.getElementById('svgInput');
   const uploadSvgBtn   = document.getElementById('uploadSvgBtn');
   const stampScaleInput= document.getElementById('stampScale');
   const stampModeBtn   = document.getElementById('stampModeBtn');
+  const deleteStampBtn = document.getElementById('deleteStampBtn');
+  const toggleRefBtn   = document.getElementById('toggleRefBtn');
   const remarkCornersBtn = document.getElementById('remarkCornersBtn');
   const downloadBtn    = document.getElementById('downloadBtn');
   const stampLibrary   = document.getElementById('stampLibrary');
@@ -793,6 +819,7 @@
     if (points.length === 4){
       updateSourceHint();
       showCornerPreview();
+      renderSquarePreview();
     }
   }
   sourceCanvas.addEventListener('pointerup', finishDrag);
@@ -996,20 +1023,35 @@
     if (points.length !== 4 || !processImageData) return;
     resultHint.textContent = 'Preparing your 12 × 12 in canvas…';
     setTimeout(() => {
-      // The photo is deliberately NOT retained in the working canvas. It is
-      // used only to let the user verify the selected material area.
+      // The photo is shown as a visual reference layer only — it is never
+      // included in the SVG export, which contains stamped shapes alone.
+      renderSquarePreview();
+      referencePhoto.src = previewCanvas.toDataURL('image/png');
+      referenceVisible = true;
+      referencePhoto.classList.remove('hidden');
+      toggleRefBtn.textContent = 'Hide reference photo';
+
       placedStamps = [];
+      selectedPlacedId = null;
+      deleteStampBtn.disabled = true;
       renderSvgCanvas();
       resultHint.textContent = 'Choose a stamp, set its scale, click “Stamp selected”, then click the canvas.';
-      resultMeta.textContent = '12 × 12 in · SVG output · original image excluded';
+      resultMeta.textContent = '12 × 12 in · SVG output · reference photo excluded';
       setStage('draw');
     }, 10);
   }
 
   function resetResult(){
     placedStamps = [];
+    selectedPlacedId = null;
     stampMode = false;
-    svgCanvas.innerHTML = '';
+    stampLayer.innerHTML = '';
+    stampGhost.hidden = true;
+    referencePhoto.removeAttribute('src');
+    referencePhoto.classList.remove('hidden');
+    referenceVisible = true;
+    toggleRefBtn.textContent = 'Hide reference photo';
+    deleteStampBtn.disabled = true;
     resultHint.textContent = 'Confirm the corners to create the 12 × 12 in canvas.';
     resultMeta.textContent = '12 × 12 in · SVG output';
     updateStampModeButton();
@@ -1024,7 +1066,7 @@
         const text = await file.text();
         const parsed = parseSvg(text);
         if (!parsed) throw new Error('Invalid SVG: it needs a usable viewBox or width/height.');
-        stamps.push({name:file.name, text:parsed.text, viewBox:parsed.viewBox, scale:1});
+        stamps.push({name:file.name, text:parsed.text, viewBox:parsed.viewBox, scale:100});
       } catch(err) { console.warn(err); }
     }
     svgInput.value='';
@@ -1051,7 +1093,7 @@
 
   function selectStamp(index){
     selectedStampIndex=index;
-    stampScaleInput.value=stamps[index]?.scale ?? 1;
+    stampScaleInput.value=stamps[index]?.scale ?? 100;
     renderStampLibrary();
   }
 
@@ -1079,13 +1121,16 @@
 
   stampScaleInput.addEventListener('input',()=>{
     if(selectedStampIndex<0)return;
-    let v=Number(stampScaleInput.value); if(!Number.isFinite(v)||v<=0)v=1;
-    v=clamp(v,.01,100); stampScaleInput.value=v; stamps[selectedStampIndex].scale=v;
+    let v=Number(stampScaleInput.value); if(!Number.isFinite(v)||v<=0)v=100;
+    v=clamp(v,1,1000); stampScaleInput.value=v; stamps[selectedStampIndex].scale=v;
   });
 
   stampModeBtn.addEventListener('click',()=>{
     if(selectedStampIndex<0)return;
-    stampMode=!stampMode; updateStampModeButton();
+    stampMode=!stampMode;
+    if (stampMode) deselectStamp();
+    else stampGhost.hidden = true;
+    updateStampModeButton();
   });
 
   function updateStampModeButton(){
@@ -1095,29 +1140,123 @@
     svgCanvas.style.cursor=stampMode?'copy':'crosshair';
   }
 
-  svgCanvas.addEventListener('click',e=>{
-    if(!stampMode||selectedStampIndex<0)return;
-    const rect=svgCanvas.getBoundingClientRect();
-    const x=(e.clientX-rect.left)/rect.width*CANVAS_PX;
-    const y=(e.clientY-rect.top)/rect.height*CANVAS_PX;
-    placedStamps.push({stampIndex:selectedStampIndex,x,y,scale:stamps[selectedStampIndex].scale});
+  // Positions are stored as FRACTIONS (0–1) of the canvas, not raw pixels.
+  // That's what makes on-screen placement land exactly under the cursor
+  // regardless of how large the (responsive) canvas is rendered, and it's
+  // converted to real 12in-canvas coordinates only at export time.
+  function getFractionalPos(e){
+    const rect = svgCanvas.getBoundingClientRect();
+    return {
+      fx: clamp((e.clientX - rect.left) / rect.width, 0, 1),
+      fy: clamp((e.clientY - rect.top) / rect.height, 0, 1)
+    };
+  }
+
+  function placeStampAt(e){
+    const { fx, fy } = getFractionalPos(e);
+    placedStamps.push({
+      id: ++placedIdCounter,
+      stampIndex: selectedStampIndex,
+      fx, fy,
+      scale: stamps[selectedStampIndex].scale
+    });
+    renderSvgCanvas();
+  }
+
+  function updateGhost(e){
+    if (!stampMode || selectedStampIndex < 0){ stampGhost.hidden = true; return; }
+    const stamp = stamps[selectedStampIndex];
+    if (!stamp){ stampGhost.hidden = true; return; }
+    const { fx, fy } = getFractionalPos(e);
+    const [, , vw, vh] = stamp.viewBox;
+    const widthPct  = (vw * (stamp.scale / 100) / CANVAS_PX) * 100;
+    const heightPct = (vh * (stamp.scale / 100) / CANVAS_PX) * 100;
+    stampGhost.style.left = `${fx * 100}%`;
+    stampGhost.style.top = `${fy * 100}%`;
+    stampGhost.style.width = `${widthPct}%`;
+    stampGhost.style.height = `${heightPct}%`;
+    stampGhost.innerHTML = '';
+    stampGhost.appendChild(svgElement(stamp.text));
+    stampGhost.hidden = false;
+  }
+
+  svgCanvas.addEventListener('pointermove', updateGhost);
+  svgCanvas.addEventListener('pointerleave', () => { stampGhost.hidden = true; });
+
+  svgCanvas.addEventListener('click', e => {
+    if (stampMode && selectedStampIndex >= 0){
+      placeStampAt(e);
+      return;
+    }
+    // Clicking empty canvas space while not placing deselects any stamp.
+    if (!stampMode && (e.target === svgCanvas || e.target === referencePhoto || e.target === stampLayer)){
+      deselectStamp();
+    }
+  });
+
+  function selectPlacedStamp(id){
+    selectedPlacedId = id;
+    deleteStampBtn.disabled = false;
+    renderSvgCanvas();
+  }
+
+  function deselectStamp(){
+    if (selectedPlacedId === null) { deleteStampBtn.disabled = true; return; }
+    selectedPlacedId = null;
+    deleteStampBtn.disabled = true;
+    renderSvgCanvas();
+  }
+
+  deleteStampBtn.addEventListener('click', () => {
+    if (selectedPlacedId === null) return;
+    placedStamps = placedStamps.filter(p => p.id !== selectedPlacedId);
+    selectedPlacedId = null;
+    deleteStampBtn.disabled = true;
     renderSvgCanvas();
   });
 
+  document.addEventListener('keydown', e => {
+    if (selectedPlacedId === null) return;
+    const tag = (e.target && e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;
+    if (e.key === 'Delete' || e.key === 'Backspace'){
+      e.preventDefault();
+      placedStamps = placedStamps.filter(p => p.id !== selectedPlacedId);
+      selectedPlacedId = null;
+      deleteStampBtn.disabled = true;
+      renderSvgCanvas();
+    }
+  });
+
+  toggleRefBtn.addEventListener('click', () => {
+    referenceVisible = !referenceVisible;
+    referencePhoto.classList.toggle('hidden', !referenceVisible);
+    toggleRefBtn.textContent = referenceVisible ? 'Hide reference photo' : 'Show reference photo';
+  });
+
   function renderSvgCanvas(){
-    svgCanvas.innerHTML='';
-    for(const p of placedStamps){
-      const stamp=stamps[p.stampIndex]; if(!stamp)continue;
-      const [, , vw, vh]=stamp.viewBox;
-      const el=svgElement(stamp.text); el.classList.add('svg-stamp');
-      el.style.left=`${p.x}px`; el.style.top=`${p.y}px`;
-      el.style.width=`${vw*p.scale}px`; el.style.height=`${vh*p.scale}px`;
-      svgCanvas.appendChild(el);
+    stampLayer.innerHTML = '';
+    for (const p of placedStamps){
+      const stamp = stamps[p.stampIndex]; if (!stamp) continue;
+      const [, , vw, vh] = stamp.viewBox;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'stamp-wrapper' + (p.id === selectedPlacedId ? ' selected' : '');
+      wrapper.style.left = `${p.fx * 100}%`;
+      wrapper.style.top = `${p.fy * 100}%`;
+      wrapper.style.width = `${(vw * (p.scale / 100) / CANVAS_PX) * 100}%`;
+      wrapper.style.height = `${(vh * (p.scale / 100) / CANVAS_PX) * 100}%`;
+      wrapper.appendChild(svgElement(stamp.text));
+      wrapper.addEventListener('click', ev => {
+        if (stampMode) return; // let the click bubble up and place a new stamp instead
+        ev.stopPropagation();
+        selectPlacedStamp(p.id);
+      });
+      stampLayer.appendChild(wrapper);
     }
   }
 
   remarkCornersBtn.addEventListener('click',()=>{
-    stampMode=false; updateStampModeButton();
+    stampMode=false; deselectStamp(); stampGhost.hidden=true; updateStampModeButton();
     showAlignScreen(); setStage('align'); redrawSource(); updateSourceHint();
   });
 
@@ -1136,7 +1275,8 @@
       const parsed=new DOMParser().parseFromString(stamp.text,'image/svg+xml');
       const source=parsed.documentElement;
       const group=doc.createElementNS(NS,'g');
-      group.setAttribute('transform',`translate(${p.x} ${p.y}) scale(${p.scale}) translate(${-vx} ${-vy})`);
+      const x = p.fx * CANVAS_PX, y = p.fy * CANVAS_PX;
+      group.setAttribute('transform',`translate(${x} ${y}) scale(${p.scale / 100}) translate(${-vx} ${-vy})`);
       for(const child of [...source.childNodes]) group.appendChild(doc.importNode(child,true));
       root.appendChild(group);
     }
@@ -1149,7 +1289,11 @@
     a.href=url; a.download='cricut-12x12.svg'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
 
-  function resetStamps(){ stamps=[]; selectedStampIndex=-1; placedStamps=[]; stampMode=false; stampScaleInput.value=1; renderStampLibrary(); }
+  function resetStamps(){
+    stamps=[]; selectedStampIndex=-1; placedStamps=[]; selectedPlacedId=null;
+    stampMode=false; stampScaleInput.value=100; deleteStampBtn.disabled=true;
+    stampGhost.hidden=true; renderStampLibrary();
+  }
 
   /* =========================================================
      STAGE INDICATOR
