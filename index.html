@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Square — Perspective Crop Tool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink: #121110;
+    --panel: #1a1918;
+    --panel-2: #211f1c;
+    --border: #34322c;
+    --border-soft: #2a2824;
+    --text: #ece8e0;
+    --text-dim: #a39d8f;
+    --text-faint: #6e685c;
+    --accent: #f2a93b;
+    --accent-ink: #1a1310;
+    --guide: #5eead4;
+    --guide-dim: rgba(94,234,212,0.4);
+    --danger: #e2543a;
+    --radius: 10px;
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  *{ box-sizing: border-box; }
+
+  body{
+    margin:0;
+    min-height:100vh;
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app{
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  header{
+    margin-bottom: 36px;
+  }
+
+  .eyebrow{
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    display:flex;
+    gap: 18px;
+    margin-bottom: 14px;
+  }
+  .eyebrow span{ transition: color .2s ease; }
+  .eyebrow span.active{ color: var(--accent); }
+
+  h1{
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 2.4rem;
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
+  }
+
+  header p{
+    color: var(--text-dim);
+    max-width: 560px;
+    line-height: 1.55;
+    margin: 0;
+  }
+
+  /* ---------- Upload dropzone ---------- */
+
+  .dropzone{
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 64px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .dropzone:hover{ border-color: var(--accent); }
+  .dropzone.dragover{
+    border-color: var(--guide);
+    background: rgba(94,234,212,0.05);
+  }
+  .dropzone svg{ stroke: var(--text-dim); margin-bottom: 14px; }
+  .dropzone .dz-title{
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin-bottom: 6px;
+  }
+  .dropzone .dz-sub{
+    color: var(--text-faint);
+    font-size: 0.88rem;
+    font-family: var(--font-mono);
+  }
+  #fileInput{ display:none; }
+
+  /* ---------- Workspace ---------- */
+
+  .workspace{
+    display:none;
+    gap: 28px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .panel{
+    flex: 1 1 440px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+    min-width: 0;
+  }
+
+  .panel-eyebrow{
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    color: var(--guide);
+    margin-bottom: 6px;
+  }
+
+  .panel h2{
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    margin: 0 0 8px;
+    font-weight: 600;
+  }
+
+  .hint{
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin: 0 0 16px;
+    min-height: 1.4em;
+  }
+
+  .canvas-wrap{
+    display:inline-block;
+    line-height: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-soft);
+    background: var(--panel-2);
+    max-width: 100%;
+  }
+
+  canvas{
+    display:block;
+    max-width: 100%;
+    height:auto;
+    touch-action: none;
+  }
+
+  #sourceCanvas{ cursor: crosshair; }
+
+  .result-wrap canvas{
+    cursor: crosshair;
+    background-image:
+      repeating-conic-gradient(#2a2824 0% 25%, #211f1c 0% 50%);
+    background-size: 20px 20px;
+  }
+
+  .empty-square{
+    aspect-ratio: 1 / 1;
+    width: 100%;
+    max-width: 420px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    text-align:center;
+    padding: 20px;
+  }
+
+  .controls-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap: 10px;
+    align-items:center;
+    margin-top: 16px;
+  }
+
+  .controls-row label{
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    display:flex;
+    align-items:center;
+    gap: 8px;
+  }
+
+  input[type=number]{
+    width: 84px;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 7px 8px;
+  }
+
+  .btn{
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.82rem;
+    letter-spacing: 0.01em;
+    padding: 9px 15px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color .15s ease, transform .1s ease, filter .15s ease;
+  }
+  .btn:hover{ border-color: var(--text-dim); }
+  .btn:active{ transform: translateY(1px); }
+  .btn:focus-visible{ outline: 2px solid var(--guide); outline-offset: 2px; }
+  .btn.primary{
+    background: var(--accent);
+    color: var(--accent-ink);
+    border-color: var(--accent);
+  }
+  .btn.primary:hover{ filter: brightness(1.08); }
+  .btn.primary:disabled{
+    opacity: 0.4;
+    cursor: not-allowed;
+    filter:none;
+  }
+  .btn.tool.active{
+    border-color: var(--guide);
+    color: var(--guide);
+  }
+
+  .result-meta{
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-faint);
+    margin-top: 10px;
+  }
+
+  .toolbar{
+    display:none;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items:center;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .toolbar input[type=color]{
+    width: 34px; height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: none;
+    padding: 2px;
+    cursor: pointer;
+  }
+
+  .toolbar .size-control{
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    display:flex;
+    align-items:center;
+    gap: 8px;
+  }
+  .toolbar input[type=range]{
+    accent-color: var(--guide);
+    width: 100px;
+  }
+
+  .toolbar .spacer{ flex: 1 1 auto; min-width: 4px; }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ transition: none !important; animation: none !important; }
+  }
+
+  @media (max-width: 720px){
+    h1{ font-size: 1.9rem; }
+    .dropzone{ padding: 44px 16px; }
+    .panel{ padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="eyebrow">
+      <span id="stageAlign" class="active">01 Align</span>
+      <span id="stageWarp">02 Warp</span>
+      <span id="stageDraw">03 Draw</span>
+    </div>
+    <h1>Square</h1>
+    <p>Upload a photo, mark the four corners you want straightened, and get back a clean, flattened square you can draw on.</p>
+  </header>
+
+  <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload an image">
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><path d="M21 15l-5-5L5 21"></path></svg>
+    <div class="dz-title">Drop an image here, or click to browse</div>
+    <div class="dz-sub">JPG · PNG · WEBP</div>
+    <input id="fileInput" type="file" accept="image/*">
+  </div>
+
+  <div class="workspace" id="workspace">
+
+    <!-- Source panel -->
+    <div class="panel">
+      <div class="panel-eyebrow">01 — ALIGN</div>
+      <h2>Mark the four corners</h2>
+      <p class="hint" id="sourceHint">Click the four corners you want to straighten. Drag any point to fine-tune it.</p>
+      <div class="canvas-wrap">
+        <canvas id="sourceCanvas"></canvas>
+      </div>
+      <div class="controls-row">
+        <label for="outputSize">Output size
+          <input type="number" id="outputSize" value="800" min="100" max="3000" step="50"> px
+        </label>
+        <button class="btn" id="resetPointsBtn">Reset points</button>
+        <button class="btn" id="newImageBtn">Upload different image</button>
+      </div>
+    </div>
+
+    <!-- Result panel -->
+    <div class="panel">
+      <div class="panel-eyebrow">02 / 03 — WARP &amp; DRAW</div>
+      <h2>Your square canvas</h2>
+      <p class="hint" id="resultHint">Place all four points to generate the square.</p>
+      <div class="canvas-wrap result-wrap" id="resultWrap">
+        <div class="empty-square" id="emptySquare">square<br>appears<br>here</div>
+        <canvas id="resultCanvas" style="display:none;"></canvas>
+      </div>
+      <div class="result-meta" id="resultMeta"></div>
+
+      <div class="toolbar" id="drawToolbar">
+        <button class="btn tool active" data-tool="pen" id="penToolBtn">Pen</button>
+        <button class="btn tool" data-tool="eraser" id="eraserToolBtn">Eraser</button>
+        <input type="color" id="penColor" value="#f2a93b" title="Color">
+        <label class="size-control">Size
+          <input type="range" id="penSize" min="1" max="60" value="6">
+        </label>
+        <div class="spacer"></div>
+        <button class="btn" id="undoBtn">Undo</button>
+        <button class="btn" id="clearDrawBtn">Clear drawing</button>
+        <button class="btn primary" id="downloadBtn">Download PNG</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* =========================================================
+     STATE
+     ========================================================= */
+
+  const PROCESS_MAX   = 2200; // longest side, in px, used for the actual pixel-sampling source
+  const DISPLAY_MAX_W = 560;  // on-screen point-picking canvas bounds
+  const DISPLAY_MAX_H = 520;
+  const HIT_RADIUS     = 16;  // px, in canvas-internal units, for grabbing an existing handle
+
+  let originalImage   = null;
+  let currentObjectURL = null;
+
+  let processCanvas, processCtx, processImageData;
+  let points = []; // up to 4 {x,y} in DISPLAY-canvas coordinate space, in click order
+  let draggingIndex = -1;
+  let animId = null;
+  let dashOffset = 0;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let baseResultImageData = null; // snapshot right after warp, used by "Clear drawing"
+  let undoStack = [];
+  let currentTool = 'pen';
+  let isDrawingStroke = false;
+  let lastDrawPoint = null;
+
+  /* =========================================================
+     DOM REFS
+     ========================================================= */
+
+  const dropzone      = document.getElementById('dropzone');
+  const fileInput      = document.getElementById('fileInput');
+  const workspace       = document.getElementById('workspace');
+
+  const sourceCanvas   = document.getElementById('sourceCanvas');
+  const sourceCtx      = sourceCanvas.getContext('2d');
+  const sourceHint     = document.getElementById('sourceHint');
+
+  const outputSizeInput = document.getElementById('outputSize');
+  const resetPointsBtn  = document.getElementById('resetPointsBtn');
+  const newImageBtn     = document.getElementById('newImageBtn');
+
+  const resultCanvas   = document.getElementById('resultCanvas');
+  const resultCtx      = resultCanvas.getContext('2d');
+  const resultHint     = document.getElementById('resultHint');
+  const resultMeta     = document.getElementById('resultMeta');
+  const emptySquare    = document.getElementById('emptySquare');
+
+  const drawToolbar    = document.getElementById('drawToolbar');
+  const penToolBtn      = document.getElementById('penToolBtn');
+  const eraserToolBtn  = document.getElementById('eraserToolBtn');
+  const penColorInput  = document.getElementById('penColor');
+  const penSizeInput   = document.getElementById('penSize');
+  const undoBtn        = document.getElementById('undoBtn');
+  const clearDrawBtn   = document.getElementById('clearDrawBtn');
+  const downloadBtn    = document.getElementById('downloadBtn');
+
+  const stageAlign     = document.getElementById('stageAlign');
+  const stageWarp      = document.getElementById('stageWarp');
+  const stageDraw      = document.getElementById('stageDraw');
+
+  processCanvas = document.createElement('canvas'); // offscreen, never appended
+  processCtx    = processCanvas.getContext('2d', { willReadFrequently: true });
+
+  /* =========================================================
+     UPLOAD / DROPZONE
+     ========================================================= */
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+  ['dragenter','dragover'].forEach(evt => {
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  });
+  ['dragleave','drop'].forEach(evt => {
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); });
+  });
+  dropzone.addEventListener('drop', (e) => {
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  });
+
+  function handleFile(file){
+    if (!file.type.startsWith('image/')) return;
+    if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
+    currentObjectURL = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => initWithImage(img);
+    img.src = currentObjectURL;
+  }
+
+  /* =========================================================
+     IMAGE INIT
+     ========================================================= */
+
+  function initWithImage(img){
+    originalImage = img;
+
+    // Offscreen full-quality-ish processing canvas (capped for performance/memory).
+    const pScale = Math.min(1, PROCESS_MAX / Math.max(img.naturalWidth, img.naturalHeight));
+    processCanvas.width  = Math.max(1, Math.round(img.naturalWidth * pScale));
+    processCanvas.height = Math.max(1, Math.round(img.naturalHeight * pScale));
+    processCtx.drawImage(img, 0, 0, processCanvas.width, processCanvas.height);
+    processImageData = processCtx.getImageData(0, 0, processCanvas.width, processCanvas.height);
+
+    // On-screen canvas for point picking.
+    const dScale = Math.min(DISPLAY_MAX_W / img.naturalWidth, DISPLAY_MAX_H / img.naturalHeight);
+    sourceCanvas.width  = Math.max(1, Math.round(img.naturalWidth * dScale));
+    sourceCanvas.height = Math.max(1, Math.round(img.naturalHeight * dScale));
+
+    points = [];
+    stopAnim();
+    resetResult();
+    setStage('align');
+    dropzone.style.display = 'none';
+    workspace.style.display = 'flex';
+    redrawSource();
+    updateSourceHint();
+  }
+
+  /* =========================================================
+     SOURCE CANVAS — render + point interaction
+     ========================================================= */
+
+  function redrawSource(){
+    if (!originalImage) return;
+    sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+    sourceCtx.drawImage(originalImage, 0, 0, sourceCanvas.width, sourceCanvas.height);
+
+    if (points.length === 4){
+      const ordered = orderPoints(points); // [tl, tr, br, bl]
+      sourceCtx.save();
+      sourceCtx.beginPath();
+      sourceCtx.moveTo(ordered[0].x, ordered[0].y);
+      for (let i = 1; i < 4; i++) sourceCtx.lineTo(ordered[i].x, ordered[i].y);
+      sourceCtx.closePath();
+      sourceCtx.setLineDash([8, 6]);
+      sourceCtx.lineDashOffset = -dashOffset;
+      sourceCtx.lineWidth = 2;
+      sourceCtx.strokeStyle = 'rgba(94,234,212,0.85)';
+      sourceCtx.stroke();
+      sourceCtx.restore();
+
+      const labels = ['TL', 'TR', 'BR', 'BL'];
+      ordered.forEach((p, i) => drawHandle(p, labels[i]));
+    } else {
+      points.forEach(p => drawHandle(p, null));
+    }
+  }
+
+  function drawHandle(p, label){
+    sourceCtx.save();
+    sourceCtx.beginPath();
+    sourceCtx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+    sourceCtx.fillStyle = 'rgba(18,17,16,0.55)';
+    sourceCtx.fill();
+    sourceCtx.lineWidth = 2;
+    sourceCtx.strokeStyle = '#5eead4';
+    sourceCtx.stroke();
+
+    sourceCtx.beginPath();
+    sourceCtx.moveTo(p.x - 4, p.y);
+    sourceCtx.lineTo(p.x + 4, p.y);
+    sourceCtx.moveTo(p.x, p.y - 4);
+    sourceCtx.lineTo(p.x, p.y + 4);
+    sourceCtx.strokeStyle = '#5eead4';
+    sourceCtx.lineWidth = 1;
+    sourceCtx.stroke();
+
+    if (label){
+      sourceCtx.font = '600 11px "JetBrains Mono", monospace';
+      sourceCtx.fillStyle = '#f2a93b';
+      sourceCtx.textBaseline = 'bottom';
+      sourceCtx.fillText(label, p.x + 12, p.y - 8);
+    }
+    sourceCtx.restore();
+  }
+
+  function orderPoints(pts){
+    // Standard order_points routine: sort 4 arbitrary points into
+    // [top-left, top-right, bottom-right, bottom-left] using sum/diff of coords.
+    const withSum  = pts.map(p => ({ p, s: p.x + p.y }));
+    const withDiff = pts.map(p => ({ p, d: p.x - p.y }));
+    const tl = withSum.reduce((a, b) => (a.s < b.s ? a : b)).p;
+    const br = withSum.reduce((a, b) => (a.s > b.s ? a : b)).p;
+    const tr = withDiff.reduce((a, b) => (a.d < b.d ? a : b)).p;
+    const bl = withDiff.reduce((a, b) => (a.d > b.d ? a : b)).p;
+    return [tl, tr, br, bl];
+  }
+
+  function getCanvasPos(canvas, evt){
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (evt.clientX - rect.left) * scaleX,
+      y: (evt.clientY - rect.top) * scaleY
+    };
+  }
+
+  function clamp(v, lo, hi){ return Math.min(Math.max(v, lo), hi); }
+
+  function findNearestPointIndex(pos){
+    let best = -1, bestDist = HIT_RADIUS;
+    points.forEach((p, i) => {
+      const d = Math.hypot(p.x - pos.x, p.y - pos.y);
+      if (d < bestDist){ bestDist = d; best = i; }
+    });
+    return best;
+  }
+
+  sourceCanvas.addEventListener('pointerdown', (e) => {
+    if (!originalImage) return;
+    const pos = getCanvasPos(sourceCanvas, e);
+    const idx = findNearestPointIndex(pos);
+    if (idx !== -1){
+      draggingIndex = idx;
+    } else if (points.length < 4){
+      points.push(pos);
+      draggingIndex = points.length - 1;
+    } else {
+      return;
+    }
+    sourceCanvas.setPointerCapture(e.pointerId);
+    startAnim();
+    updateSourceHint();
+  });
+
+  sourceCanvas.addEventListener('pointermove', (e) => {
+    if (draggingIndex === -1) return;
+    const pos = getCanvasPos(sourceCanvas, e);
+    points[draggingIndex] = {
+      x: clamp(pos.x, 0, sourceCanvas.width),
+      y: clamp(pos.y, 0, sourceCanvas.height)
+    };
+  });
+
+  function finishDrag(){
+    if (draggingIndex === -1) return;
+    draggingIndex = -1;
+    if (points.length === 4) performWarp();
+  }
+  sourceCanvas.addEventListener('pointerup', finishDrag);
+  sourceCanvas.addEventListener('pointercancel', finishDrag);
+  sourceCanvas.addEventListener('pointerleave', () => { if (draggingIndex !== -1) finishDrag(); });
+
+  function updateSourceHint(){
+    if (points.length < 4){
+      sourceHint.textContent = points.length === 0
+        ? 'Click the four corners you want to straighten. Drag any point to fine-tune it.'
+        : `${points.length} of 4 corners placed — click ${4 - points.length} more.`;
+    } else {
+      sourceHint.textContent = 'All 4 corners placed. Drag a point to re-warp, or reset to start over.';
+    }
+  }
+
+  function startAnim(){
+    if (animId || points.length === 0) return;
+    const loop = () => {
+      if (!reducedMotion) dashOffset = (dashOffset + 0.4) % 16;
+      redrawSource();
+      if (points.length > 0){ animId = requestAnimationFrame(loop); }
+      else { animId = null; }
+    };
+    animId = requestAnimationFrame(loop);
+  }
+  function stopAnim(){
+    if (animId){ cancelAnimationFrame(animId); animId = null; }
+  }
+
+  resetPointsBtn.addEventListener('click', () => {
+    points = [];
+    stopAnim();
+    redrawSource();
+    updateSourceHint();
+    resetResult();
+    setStage('align');
+  });
+
+  newImageBtn.addEventListener('click', () => {
+    stopAnim();
+    points = [];
+    originalImage = null;
+    workspace.style.display = 'none';
+    dropzone.style.display = 'block';
+    fileInput.value = '';
+    resetResult();
+    setStage('align');
+  });
+
+  outputSizeInput.addEventListener('change', () => {
+    let v = parseInt(outputSizeInput.value, 10);
+    if (isNaN(v)) v = 800;
+    v = clamp(v, 100, 3000);
+    outputSizeInput.value = v;
+    if (points.length === 4) performWarp();
+  });
+
+  /* =========================================================
+     HOMOGRAPHY MATH (projective transform from 4 point pairs)
+     ========================================================= */
+
+  function solveLinearSystem(A, b){
+    const n = b.length;
+    for (let i = 0; i < n; i++) A[i].push(b[i]);
+    for (let col = 0; col < n; col++){
+      let maxRow = col;
+      for (let r = col + 1; r < n; r++){
+        if (Math.abs(A[r][col]) > Math.abs(A[maxRow][col])) maxRow = r;
+      }
+      [A[col], A[maxRow]] = [A[maxRow], A[col]];
+      const pivot = A[col][col];
+      if (Math.abs(pivot) < 1e-12) continue;
+      for (let r = 0; r < n; r++){
+        if (r === col) continue;
+        const factor = A[r][col] / pivot;
+        for (let c = col; c <= n; c++) A[r][c] -= factor * A[col][c];
+      }
+    }
+    const x = new Array(n);
+    for (let i = 0; i < n; i++) x[i] = A[i][n] / A[i][i];
+    return x;
+  }
+
+  // Returns H (length-9, row-major 3x3, h33=1) such that applying it to a
+  // srcPts[i] point yields dstPts[i]. Call with (squareCorners, imagePoints)
+  // to get the DEST -> SOURCE mapping needed for resampling.
+  function computeHomography(srcPts, dstPts){
+    const A = [], b = [];
+    for (let i = 0; i < 4; i++){
+      const { x, y } = srcPts[i];
+      const { x: u, y: v } = dstPts[i];
+      A.push([x, y, 1, 0, 0, 0, -x * u, -y * u]); b.push(u);
+      A.push([0, 0, 0, x, y, 1, -x * v, -y * v]); b.push(v);
+    }
+    const h = solveLinearSystem(A, b);
+    return h.concat([1]);
+  }
+
+  function applyHomography(H, x, y){
+    const w = H[6] * x + H[7] * y + H[8];
+    return {
+      x: (H[0] * x + H[1] * y + H[2]) / w,
+      y: (H[3] * x + H[4] * y + H[5]) / w
+    };
+  }
+
+  /* =========================================================
+     WARP EXECUTION
+     ========================================================= */
+
+  function performWarp(){
+    if (points.length !== 4 || !processImageData) return;
+    setStage('warp');
+    resultHint.textContent = 'Warping…';
+
+    // Defer one tick so the "Warping…" message actually paints before the
+    // (synchronous, single-threaded) pixel loop runs.
+    setTimeout(() => {
+      const outputSize = clamp(parseInt(outputSizeInput.value, 10) || 800, 100, 3000);
+      resultCanvas.width = outputSize;
+      resultCanvas.height = outputSize;
+
+      // Convert display-space points into process-canvas-space points.
+      const scaleX = processCanvas.width / sourceCanvas.width;
+      const scaleY = processCanvas.height / sourceCanvas.height;
+      const srcPts = points.map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
+      const ordered = orderPoints(srcPts); // [tl, tr, br, bl] in process-canvas space
+
+      const dstSquare = [
+        { x: 0, y: 0 },
+        { x: outputSize, y: 0 },
+        { x: outputSize, y: outputSize },
+        { x: 0, y: outputSize }
+      ];
+
+      // H maps a point in the OUTPUT square to the corresponding point in
+      // the PROCESS-canvas source image — exactly what we need to resample.
+      const H = computeHomography(dstSquare, ordered);
+
+      const outImageData = resultCtx.createImageData(outputSize, outputSize);
+      warpImage(processImageData, outImageData, H, outputSize);
+      resultCtx.putImageData(outImageData, 0, 0);
+
+      baseResultImageData = resultCtx.getImageData(0, 0, outputSize, outputSize);
+      undoStack = [];
+
+      emptySquare.style.display = 'none';
+      resultCanvas.style.display = 'block';
+      drawToolbar.style.display = 'flex';
+      resultHint.textContent = 'Square ready — draw on it below, then download.';
+      resultMeta.textContent = `${outputSize} × ${outputSize} px`;
+      setStage('draw');
+    }, 10);
+  }
+
+  function warpImage(srcImageData, dstImageData, H, size){
+    const sw = srcImageData.width, sh = srcImageData.height;
+    const sData = srcImageData.data, dData = dstImageData.data;
+
+    for (let y = 0; y < size; y++){
+      for (let x = 0; x < size; x++){
+        const s = applyHomography(H, x + 0.5, y + 0.5);
+        const di = (y * size + x) * 4;
+
+        if (s.x >= 0 && s.x < sw - 1 && s.y >= 0 && s.y < sh - 1){
+          // Bilinear interpolation.
+          const x0 = Math.floor(s.x), y0 = Math.floor(s.y);
+          const fx = s.x - x0, fy = s.y - y0;
+          const i00 = (y0 * sw + x0) * 4;
+          const i10 = (y0 * sw + x0 + 1) * 4;
+          const i01 = ((y0 + 1) * sw + x0) * 4;
+          const i11 = ((y0 + 1) * sw + x0 + 1) * 4;
+          for (let c = 0; c < 4; c++){
+            const top = sData[i00 + c] * (1 - fx) + sData[i10 + c] * fx;
+            const bot = sData[i01 + c] * (1 - fx) + sData[i11 + c] * fx;
+            dData[di + c] = top * (1 - fy) + bot * fy;
+          }
+        } else if (s.x >= -1 && s.x < sw + 1 && s.y >= -1 && s.y < sh + 1){
+          // Just outside — clamp to the nearest edge pixel to avoid seams.
+          const cx = clamp(Math.round(s.x), 0, sw - 1);
+          const cy = clamp(Math.round(s.y), 0, sh - 1);
+          const si = (cy * sw + cx) * 4;
+          for (let c = 0; c < 4; c++) dData[di + c] = sData[si + c];
+        } else {
+          dData[di + 3] = 0; // fully outside the source image -> transparent
+        }
+      }
+    }
+  }
+
+  function resetResult(){
+    resultCanvas.style.display = 'none';
+    emptySquare.style.display = 'flex';
+    drawToolbar.style.display = 'none';
+    resultHint.textContent = 'Place all four points to generate the square.';
+    resultMeta.textContent = '';
+    baseResultImageData = null;
+    undoStack = [];
+  }
+
+  /* =========================================================
+     RESULT CANVAS — drawing tools ("further work" surface)
+     ========================================================= */
+
+  function getResultPos(evt){ return getCanvasPos(resultCanvas, evt); }
+
+  function pushUndo(){
+    undoStack.push(resultCtx.getImageData(0, 0, resultCanvas.width, resultCanvas.height));
+    if (undoStack.length > 20) undoStack.shift();
+  }
+
+  function strokeSegment(from, to){
+    resultCtx.save();
+    resultCtx.lineCap = 'round';
+    resultCtx.lineJoin = 'round';
+    resultCtx.lineWidth = Number(penSizeInput.value);
+    resultCtx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : 'source-over';
+    resultCtx.strokeStyle = penColorInput.value;
+    resultCtx.beginPath();
+    resultCtx.moveTo(from.x, from.y);
+    resultCtx.lineTo(to.x, to.y);
+    resultCtx.stroke();
+    resultCtx.restore();
+  }
+
+  resultCanvas.addEventListener('pointerdown', (e) => {
+    if (!baseResultImageData) return;
+    pushUndo();
+    isDrawingStroke = true;
+    lastDrawPoint = getResultPos(e);
+    strokeSegment(lastDrawPoint, lastDrawPoint);
+    resultCanvas.setPointerCapture(e.pointerId);
+  });
+  resultCanvas.addEventListener('pointermove', (e) => {
+    if (!isDrawingStroke) return;
+    const pos = getResultPos(e);
+    strokeSegment(lastDrawPoint, pos);
+    lastDrawPoint = pos;
+  });
+  function endStroke(){ isDrawingStroke = false; lastDrawPoint = null; }
+  resultCanvas.addEventListener('pointerup', endStroke);
+  resultCanvas.addEventListener('pointercancel', endStroke);
+  resultCanvas.addEventListener('pointerleave', endStroke);
+
+  function setTool(tool){
+    currentTool = tool;
+    penToolBtn.classList.toggle('active', tool === 'pen');
+    eraserToolBtn.classList.toggle('active', tool === 'eraser');
+  }
+  penToolBtn.addEventListener('click', () => setTool('pen'));
+  eraserToolBtn.addEventListener('click', () => setTool('eraser'));
+
+  undoBtn.addEventListener('click', () => {
+    if (undoStack.length === 0) return;
+    resultCtx.putImageData(undoStack.pop(), 0, 0);
+  });
+
+  clearDrawBtn.addEventListener('click', () => {
+    if (!baseResultImageData) return;
+    pushUndo();
+    resultCtx.putImageData(baseResultImageData, 0, 0);
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    const link = document.createElement('a');
+    link.download = 'square-crop.png';
+    link.href = resultCanvas.toDataURL('image/png');
+    link.click();
+  });
+
+  /* =========================================================
+     STAGE INDICATOR
+     ========================================================= */
+
+  function setStage(stage){
+    stageAlign.classList.toggle('active', stage === 'align');
+    stageWarp.classList.toggle('active', stage === 'warp');
+    stageDraw.classList.toggle('active', stage === 'draw');
+  }
+
+})();
+</script>
+</body>
+</html>
