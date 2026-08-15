@@ -290,6 +290,73 @@
 
   .toolbar .spacer{ flex: 1 1 auto; min-width: 4px; }
 
+
+  /* ---------- Point placement helpers ---------- */
+  .point-preview{
+    position:relative;
+  }
+  .point-preview::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    border-radius:8px;
+    box-shadow: inset 0 0 0 1px rgba(94,234,212,0.12);
+  }
+  .magnifier{
+    display:none;
+    position:fixed;
+    z-index:50;
+    width:150px;
+    height:150px;
+    border:2px solid var(--guide);
+    border-radius:50%;
+    overflow:hidden;
+    background:var(--panel);
+    box-shadow:0 10px 30px rgba(0,0,0,.45), 0 0 0 5px rgba(18,17,16,.65);
+    pointer-events:none;
+  }
+  .magnifier canvas{
+    width:100%;
+    height:100%;
+    max-width:none;
+    image-rendering:auto;
+  }
+  .magnifier-label{
+    position:absolute;
+    left:50%;
+    bottom:6px;
+    transform:translateX(-50%);
+    font:500 10px var(--font-mono);
+    letter-spacing:.08em;
+    color:var(--guide);
+    background:rgba(18,17,16,.75);
+    padding:3px 6px;
+    border-radius:4px;
+  }
+  .preview-actions{
+    display:none;
+    gap:10px;
+    margin-top:16px;
+    padding-top:16px;
+    border-top:1px solid var(--border-soft);
+  }
+  .source-panel.confirmed{
+    display:none;
+  }
+  .result-panel{
+    display:block;
+  }
+  .result-panel.preview-hidden{
+    display:none;
+  }
+  .preview-badge{
+    display:none;
+    margin-top:10px;
+    font:500 .72rem var(--font-mono);
+    color:var(--guide);
+  }
+
   @media (prefers-reduced-motion: reduce){
     *{ transition: none !important; animation: none !important; }
   }
@@ -324,12 +391,16 @@
   <div class="workspace" id="workspace">
 
     <!-- Source panel -->
-    <div class="panel">
+    <div class="panel source-panel" id="sourcePanel">
       <div class="panel-eyebrow">01 — ALIGN</div>
       <h2>Mark the four corners</h2>
       <p class="hint" id="sourceHint">Click the four corners you want to straighten. Drag any point to fine-tune it.</p>
       <div class="canvas-wrap">
         <canvas id="sourceCanvas"></canvas>
+      </div>
+      <div class="preview-badge" id="previewBadge">SQUARE PREVIEW — confirm when the corners look right</div>
+      <div class="preview-actions" id="previewActions">
+        <button class="btn primary" id="confirmCornersBtn">Confirm corners</button>
       </div>
       <div class="controls-row">
         <label for="outputSize">Output size
@@ -341,7 +412,7 @@
     </div>
 
     <!-- Result panel -->
-    <div class="panel">
+    <div class="panel result-panel preview-hidden" id="resultPanel">
       <div class="panel-eyebrow">02 / 03 — WARP &amp; DRAW</div>
       <h2>Your square canvas</h2>
       <p class="hint" id="resultHint">Place all four points to generate the square.</p>
@@ -361,11 +432,17 @@
         <div class="spacer"></div>
         <button class="btn" id="undoBtn">Undo</button>
         <button class="btn" id="clearDrawBtn">Clear drawing</button>
+        <button class="btn" id="remarkCornersBtn">Remark corners</button>
         <button class="btn primary" id="downloadBtn">Download PNG</button>
       </div>
     </div>
 
   </div>
+</div>
+
+<div class="magnifier" id="magnifier">
+  <canvas id="magnifierCanvas" width="300" height="300"></canvas>
+  <div class="magnifier-label">PRECISION</div>
 </div>
 
 <script>
@@ -387,6 +464,8 @@
   let processCanvas, processCtx, processImageData;
   let points = []; // up to 4 {x,y} in DISPLAY-canvas coordinate space, in click order
   let draggingIndex = -1;
+  let confirmedCorners = false;
+  let magnifierVisible = false;
   let animId = null;
   let dashOffset = 0;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -408,6 +487,14 @@
   const sourceCanvas   = document.getElementById('sourceCanvas');
   const sourceCtx      = sourceCanvas.getContext('2d');
   const sourceHint     = document.getElementById('sourceHint');
+  const sourcePanel     = document.getElementById('sourcePanel');
+  const resultPanel     = document.getElementById('resultPanel');
+  const previewActions  = document.getElementById('previewActions');
+  const confirmCornersBtn = document.getElementById('confirmCornersBtn');
+  const previewBadge    = document.getElementById('previewBadge');
+  const magnifier      = document.getElementById('magnifier');
+  const magnifierCanvas = document.getElementById('magnifierCanvas');
+  const magnifierCtx    = magnifierCanvas.getContext('2d');
 
   const outputSizeInput = document.getElementById('outputSize');
   const resetPointsBtn  = document.getElementById('resetPointsBtn');
@@ -426,6 +513,7 @@
   const penSizeInput   = document.getElementById('penSize');
   const undoBtn        = document.getElementById('undoBtn');
   const clearDrawBtn   = document.getElementById('clearDrawBtn');
+  const remarkCornersBtn = document.getElementById('remarkCornersBtn');
   const downloadBtn    = document.getElementById('downloadBtn');
 
   const stageAlign     = document.getElementById('stageAlign');
@@ -486,8 +574,10 @@
     sourceCanvas.height = Math.max(1, Math.round(img.naturalHeight * dScale));
 
     points = [];
+    confirmedCorners = false;
     stopAnim();
     resetResult();
+    showAlignScreen();
     setStage('align');
     dropzone.style.display = 'none';
     workspace.style.display = 'flex';
@@ -511,10 +601,15 @@
       sourceCtx.moveTo(ordered[0].x, ordered[0].y);
       for (let i = 1; i < 4; i++) sourceCtx.lineTo(ordered[i].x, ordered[i].y);
       sourceCtx.closePath();
+
+      // Subtle translucent square-region preview so the user can verify the
+      // exact material area before committing to the canvas screen.
+      sourceCtx.fillStyle = 'rgba(94,234,212,0.08)';
+      sourceCtx.fill();
       sourceCtx.setLineDash([8, 6]);
       sourceCtx.lineDashOffset = -dashOffset;
       sourceCtx.lineWidth = 2;
-      sourceCtx.strokeStyle = 'rgba(94,234,212,0.85)';
+      sourceCtx.strokeStyle = 'rgba(94,234,212,0.9)';
       sourceCtx.stroke();
       sourceCtx.restore();
 
@@ -560,8 +655,10 @@
     const withDiff = pts.map(p => ({ p, d: p.x - p.y }));
     const tl = withSum.reduce((a, b) => (a.s < b.s ? a : b)).p;
     const br = withSum.reduce((a, b) => (a.s > b.s ? a : b)).p;
-    const tr = withDiff.reduce((a, b) => (a.d < b.d ? a : b)).p;
-    const bl = withDiff.reduce((a, b) => (a.d > b.d ? a : b)).p;
+    // In canvas coordinates y increases downward, so x-y is smallest at BL
+    // and largest at TR.
+    const tr = withDiff.reduce((a, b) => (a.d > b.d ? a : b)).p;
+    const bl = withDiff.reduce((a, b) => (a.d < b.d ? a : b)).p;
     return [tl, tr, br, bl];
   }
 
@@ -601,6 +698,7 @@
     sourceCanvas.setPointerCapture(e.pointerId);
     startAnim();
     updateSourceHint();
+    showMagnifier(pos, e.clientX, e.clientY);
   });
 
   sourceCanvas.addEventListener('pointermove', (e) => {
@@ -610,16 +708,83 @@
       x: clamp(pos.x, 0, sourceCanvas.width),
       y: clamp(pos.y, 0, sourceCanvas.height)
     };
+    showMagnifier(points[draggingIndex], e.clientX, e.clientY);
   });
 
   function finishDrag(){
     if (draggingIndex === -1) return;
     draggingIndex = -1;
-    if (points.length === 4) performWarp();
+    hideMagnifier();
+    if (points.length === 4){
+      updateSourceHint();
+      showCornerPreview();
+    }
   }
   sourceCanvas.addEventListener('pointerup', finishDrag);
   sourceCanvas.addEventListener('pointercancel', finishDrag);
   sourceCanvas.addEventListener('pointerleave', () => { if (draggingIndex !== -1) finishDrag(); });
+
+  function showMagnifier(pos, clientX, clientY){
+    if (!originalImage) return;
+    const zoom = 4;
+    const radius = 150;
+    const sourceRadius = radius / zoom;
+    const sx = pos.x - sourceRadius;
+    const sy = pos.y - sourceRadius;
+
+    magnifierCtx.clearRect(0, 0, 300, 300);
+    magnifierCtx.fillStyle = '#1a1918';
+    magnifierCtx.fillRect(0, 0, 300, 300);
+    magnifierCtx.drawImage(
+      sourceCanvas,
+      sx, sy, sourceRadius * 2, sourceRadius * 2,
+      0, 0, 300, 300
+    );
+
+    magnifierCtx.strokeStyle = '#5eead4';
+    magnifierCtx.lineWidth = 2;
+    magnifierCtx.beginPath();
+    magnifierCtx.moveTo(150, 132);
+    magnifierCtx.lineTo(150, 168);
+    magnifierCtx.moveTo(132, 150);
+    magnifierCtx.lineTo(168, 150);
+    magnifierCtx.stroke();
+
+    const gap = 18;
+    const left = Math.min(window.innerWidth - 170, Math.max(10, clientX + gap));
+    const top = Math.min(window.innerHeight - 170, Math.max(10, clientY + gap));
+    magnifier.style.left = `${left}px`;
+    magnifier.style.top = `${top}px`;
+    magnifier.style.display = 'block';
+    magnifierVisible = true;
+  }
+
+  function hideMagnifier(){
+    magnifier.style.display = 'none';
+    magnifierVisible = false;
+  }
+
+  function showCornerPreview(){
+    if (points.length === 4 && !confirmedCorners){
+      previewActions.style.display = 'flex';
+      previewBadge.style.display = 'block';
+      sourceHint.textContent = 'Preview the selected square. Drag a corner to refine it, or confirm when it looks right.';
+    }
+  }
+
+  function showAlignScreen(){
+    confirmedCorners = false;
+    sourcePanel.classList.remove('confirmed');
+    resultPanel.classList.add('preview-hidden');
+    previewActions.style.display = points.length === 4 ? 'flex' : 'none';
+    previewBadge.style.display = points.length === 4 ? 'block' : 'none';
+  }
+
+  function showCanvasScreen(){
+    confirmedCorners = true;
+    sourcePanel.classList.add('confirmed');
+    resultPanel.classList.remove('preview-hidden');
+  }
 
   function updateSourceHint(){
     if (points.length < 4){
@@ -651,6 +816,7 @@
     redrawSource();
     updateSourceHint();
     resetResult();
+    showAlignScreen();
     setStage('align');
   });
 
@@ -662,7 +828,14 @@
     dropzone.style.display = 'block';
     fileInput.value = '';
     resetResult();
+    showAlignScreen();
     setStage('align');
+  });
+
+  confirmCornersBtn.addEventListener('click', () => {
+    if (points.length !== 4) return;
+    showCanvasScreen();
+    performWarp();
   });
 
   outputSizeInput.addEventListener('change', () => {
@@ -877,6 +1050,13 @@
     if (!baseResultImageData) return;
     pushUndo();
     resultCtx.putImageData(baseResultImageData, 0, 0);
+  });
+
+  remarkCornersBtn.addEventListener('click', () => {
+    showAlignScreen();
+    setStage('align');
+    redrawSource();
+    updateSourceHint();
   });
 
   downloadBtn.addEventListener('click', () => {
