@@ -147,6 +147,12 @@
     min-height: 1.4em;
   }
 
+  /* Reserve room for 2 lines so this message can never reflow (and thereby
+     move) the corner-picking canvas that sits directly below it. */
+  #sourceHint{
+    min-height: 3em;
+  }
+
   .canvas-wrap{
     display:inline-block;
     line-height: 0;
@@ -238,10 +244,12 @@
     color: var(--accent-ink);
     border-color: var(--accent);
   }
-  .btn.primary:hover{ filter: brightness(1.08); }
-  .btn.primary:disabled{
+  .btn:disabled{
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  .btn.primary:hover{ filter: brightness(1.08); }
+  .btn.primary:disabled{
     filter:none;
   }
   .btn.tool.active{
@@ -403,7 +411,8 @@
   /* SVG stamp library */
   .stamp-controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border-soft)}
   .scale-control{display:flex;align-items:center;gap:7px;color:var(--text-dim);font:500 .75rem var(--font-mono)}
-  .scale-control input{width:78px;font:500 .82rem var(--font-mono);background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 8px}
+  .scale-control input[type=number]{width:78px;font:500 .82rem var(--font-mono);background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 8px}
+  .scale-control input[type=color]{width:34px;height:34px;border:1px solid var(--border);border-radius:6px;background:none;padding:2px;cursor:pointer}
   .stamp-library{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-top:16px}
   .stamp-card{min-height:110px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);padding:8px;cursor:pointer;color:var(--text);text-align:left}
   .stamp-card:hover{border-color:var(--text-dim)}
@@ -423,9 +432,10 @@
 
   #stampLayer{position:absolute;inset:0;pointer-events:none;z-index:1}
 
-  .stamp-wrapper{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;cursor:pointer;user-select:none}
+  .stamp-wrapper{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;cursor:grab;user-select:none;touch-action:none}
   .stamp-wrapper svg{width:100%;height:100%;display:block;pointer-events:none}
   .stamp-wrapper.selected{outline:2px dashed var(--guide);outline-offset:4px;border-radius:2px}
+  .stamp-wrapper.dragging{cursor:grabbing}
 
   .stamp-ghost{position:absolute;transform:translate(-50%,-50%);pointer-events:none;opacity:.5;z-index:2}
   .stamp-ghost svg{width:100%;height:100%;display:block}
@@ -444,11 +454,6 @@
 <div class="app">
 
   <header>
-    <div class="eyebrow">
-      <span id="stageAlign" class="active">01 Align</span>
-      <span id="stageWarp">02 Warp</span>
-      <span id="stageDraw">03 Draw</span>
-    </div>
     <h1>Square</h1>
     <p>Upload a photo, mark the four corners you want straightened, and get back a clean, flattened square you can draw on.</p>
   </header>
@@ -504,13 +509,16 @@
         </div>
       </div>
       <div class="result-meta" id="resultMeta">12 × 12 in · SVG output</div>
+      <p class="hint" id="stampHelpHint">Click a stamp below to arm it, then click the canvas to place it. Click a placed stamp to select it — drag to move, or delete it. Click the armed stamp again to stop placing.</p>
       <div class="stamp-controls">
         <input id="svgInput" type="file" accept=".svg,image/svg+xml" multiple hidden>
         <button class="btn" id="uploadSvgBtn">Upload SVG shapes</button>
         <label class="scale-control">Scale
           <input type="number" id="stampScale" value="100" min="1" max="1000" step="1"> %
         </label>
-        <button class="btn primary" id="stampModeBtn" disabled>Stamp selected</button>
+        <label class="scale-control">Color
+          <input type="color" id="stampColor" value="#1a1918">
+        </label>
         <button class="btn" id="deleteStampBtn" disabled>Delete stamp</button>
         <button class="btn" id="toggleRefBtn">Hide reference photo</button>
         <button class="btn" id="remarkCornersBtn">Remark corners</button>
@@ -554,11 +562,11 @@
   let dashOffset = 0;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  let stampMode = false;
   let stamps = [];
   let selectedStampIndex = -1;
   let placedStamps = [];
   let selectedPlacedId = null;
+  let draggingPlacedId = null;
   let placedIdCounter = 0;
   let referenceVisible = true;
   const CANVAS_INCHES = 12;
@@ -594,6 +602,7 @@
 
   const resultHint     = document.getElementById('resultHint');
   const resultMeta     = document.getElementById('resultMeta');
+  const stampHelpHint  = document.getElementById('stampHelpHint');
   const svgCanvas      = document.getElementById('svgCanvas');
   const referencePhoto = document.getElementById('referencePhoto');
   const stampLayer     = document.getElementById('stampLayer');
@@ -601,17 +610,13 @@
   const svgInput       = document.getElementById('svgInput');
   const uploadSvgBtn   = document.getElementById('uploadSvgBtn');
   const stampScaleInput= document.getElementById('stampScale');
-  const stampModeBtn   = document.getElementById('stampModeBtn');
+  const stampColorInput= document.getElementById('stampColor');
   const deleteStampBtn = document.getElementById('deleteStampBtn');
   const toggleRefBtn   = document.getElementById('toggleRefBtn');
   const remarkCornersBtn = document.getElementById('remarkCornersBtn');
   const downloadBtn    = document.getElementById('downloadBtn');
   const stampLibrary   = document.getElementById('stampLibrary');
   const stampLibraryEmpty = document.getElementById('stampLibraryEmpty');
-
-  const stageAlign     = document.getElementById('stageAlign');
-  const stageWarp      = document.getElementById('stageWarp');
-  const stageDraw      = document.getElementById('stageDraw');
 
   processCanvas = document.createElement('canvas'); // offscreen, never appended
   processCtx    = processCanvas.getContext('2d', { willReadFrequently: true });
@@ -674,7 +679,6 @@
     resetResult();
     resetStamps();
     showAlignScreen();
-    setStage('align');
     dropzone.style.display = 'none';
     workspace.style.display = 'flex';
     redrawSource();
@@ -792,12 +796,12 @@
     } else if (points.length < 4){
       points.push(pos);
       draggingIndex = points.length - 1;
+      updateSourceHint();
     } else {
       return;
     }
     sourceCanvas.setPointerCapture(e.pointerId);
     startAnim();
-    updateSourceHint();
     showMagnifier(pos, e.clientX, e.clientY);
   });
 
@@ -817,7 +821,6 @@
     draggingIndex = -1;
     hideMagnifier();
     if (points.length === 4){
-      updateSourceHint();
       showCornerPreview();
       renderSquarePreview();
     }
@@ -922,7 +925,6 @@
     updateSourceHint();
     resetResult();
     showAlignScreen();
-    setStage('align');
   });
 
   newImageBtn.addEventListener('click', () => {
@@ -934,7 +936,6 @@
     fileInput.value = '';
     resetResult();
     showAlignScreen();
-    setStage('align');
   });
 
   confirmCornersBtn.addEventListener('click', () => {
@@ -992,6 +993,42 @@
     };
   }
 
+  // Resamples srcImageData into dstImageData (size x size) using H to map
+  // each destination pixel back to its source coordinate, with bilinear
+  // interpolation. H must be the DEST -> SOURCE mapping.
+  function warpImage(srcImageData, dstImageData, H, size){
+    const sw = srcImageData.width, sh = srcImageData.height;
+    const sData = srcImageData.data, dData = dstImageData.data;
+
+    for (let y = 0; y < size; y++){
+      for (let x = 0; x < size; x++){
+        const s = applyHomography(H, x + 0.5, y + 0.5);
+        const di = (y * size + x) * 4;
+
+        if (s.x >= 0 && s.x < sw - 1 && s.y >= 0 && s.y < sh - 1){
+          const x0 = Math.floor(s.x), y0 = Math.floor(s.y);
+          const fx = s.x - x0, fy = s.y - y0;
+          const i00 = (y0 * sw + x0) * 4;
+          const i10 = (y0 * sw + x0 + 1) * 4;
+          const i01 = ((y0 + 1) * sw + x0) * 4;
+          const i11 = ((y0 + 1) * sw + x0 + 1) * 4;
+          for (let c = 0; c < 4; c++){
+            const top = sData[i00 + c] * (1 - fx) + sData[i10 + c] * fx;
+            const bot = sData[i01 + c] * (1 - fx) + sData[i11 + c] * fx;
+            dData[di + c] = top * (1 - fy) + bot * fy;
+          }
+        } else if (s.x >= -1 && s.x < sw + 1 && s.y >= -1 && s.y < sh + 1){
+          const cx = clamp(Math.round(s.x), 0, sw - 1);
+          const cy = clamp(Math.round(s.y), 0, sh - 1);
+          const si = (cy * sw + cx) * 4;
+          for (let c = 0; c < 4; c++) dData[di + c] = sData[si + c];
+        } else {
+          dData[di + 3] = 0;
+        }
+      }
+    }
+  }
+
   /* =========================================================
      SQUARE PREVIEW
      ========================================================= */
@@ -1035,16 +1072,15 @@
       selectedPlacedId = null;
       deleteStampBtn.disabled = true;
       renderSvgCanvas();
-      resultHint.textContent = 'Choose a stamp, set its scale, click “Stamp selected”, then click the canvas.';
+      resultHint.textContent = 'Your 12 × 12 in canvas is ready.';
       resultMeta.textContent = '12 × 12 in · SVG output · reference photo excluded';
-      setStage('draw');
     }, 10);
   }
 
   function resetResult(){
     placedStamps = [];
     selectedPlacedId = null;
-    stampMode = false;
+    draggingPlacedId = null;
     stampLayer.innerHTML = '';
     stampGhost.hidden = true;
     referencePhoto.removeAttribute('src');
@@ -1054,7 +1090,7 @@
     deleteStampBtn.disabled = true;
     resultHint.textContent = 'Confirm the corners to create the 12 × 12 in canvas.';
     resultMeta.textContent = '12 × 12 in · SVG output';
-    updateStampModeButton();
+    updateCanvasCursor();
   }
 
   uploadSvgBtn.addEventListener('click', () => svgInput.click());
@@ -1091,24 +1127,35 @@
     return {text:new XMLSerializer().serializeToString(svg),viewBox:vb};
   }
 
+  // Selecting a library stamp ARMS it for placement (click canvas to stamp).
+  // Clicking the already-armed stamp again disarms it. There's no separate
+  // "stamp mode" toggle — the library selection IS the mode.
   function selectStamp(index){
     selectedStampIndex=index;
     stampScaleInput.value=stamps[index]?.scale ?? 100;
+    deselectStamp();
     renderStampLibrary();
+    updateCanvasCursor();
   }
 
   function renderStampLibrary(){
     stampLibrary.innerHTML='';
-    if (!stamps.length){ stampLibrary.appendChild(stampLibraryEmpty); stampModeBtn.disabled=true; return; }
+    if (!stamps.length){ stampLibrary.appendChild(stampLibraryEmpty); return; }
     stamps.forEach((stamp,i)=>{
       const card=document.createElement('button'); card.type='button';
       card.className='stamp-card'+(i===selectedStampIndex?' active':'');
       const thumb=document.createElement('div'); thumb.className='stamp-thumb';
       thumb.appendChild(svgElement(stamp.text));
       const name=document.createElement('div'); name.className='stamp-name'; name.textContent=stamp.name;
-      card.append(thumb,name); card.onclick=()=>selectStamp(i); stampLibrary.appendChild(card);
+      card.append(thumb,name);
+      card.onclick=()=>{
+        if (selectedStampIndex === i){ selectedStampIndex = -1; }
+        else { selectedStampIndex = i; stampScaleInput.value = stamps[i].scale; deselectStamp(); }
+        renderStampLibrary();
+        updateCanvasCursor();
+      };
+      stampLibrary.appendChild(card);
     });
-    stampModeBtn.disabled=selectedStampIndex<0;
   }
 
   function svgElement(text){
@@ -1119,26 +1166,27 @@
     return el;
   }
 
+  // Recolors every filled element in a stamp to a single flat color,
+  // leaving explicit fill="none" elements (outlines/holes) untouched.
+  function coloredSvgText(baseText, color){
+    if (!color) return baseText;
+    const doc = new DOMParser().parseFromString(baseText, 'image/svg+xml');
+    const root = doc.documentElement;
+    [root, ...root.querySelectorAll('*')].forEach(el => {
+      if (el.getAttribute('fill') !== 'none') el.setAttribute('fill', color);
+    });
+    return new XMLSerializer().serializeToString(root);
+  }
+
+  function updateCanvasCursor(){
+    svgCanvas.style.cursor = selectedStampIndex >= 0 ? 'copy' : 'crosshair';
+  }
+
   stampScaleInput.addEventListener('input',()=>{
     if(selectedStampIndex<0)return;
     let v=Number(stampScaleInput.value); if(!Number.isFinite(v)||v<=0)v=100;
     v=clamp(v,1,1000); stampScaleInput.value=v; stamps[selectedStampIndex].scale=v;
   });
-
-  stampModeBtn.addEventListener('click',()=>{
-    if(selectedStampIndex<0)return;
-    stampMode=!stampMode;
-    if (stampMode) deselectStamp();
-    else stampGhost.hidden = true;
-    updateStampModeButton();
-  });
-
-  function updateStampModeButton(){
-    stampModeBtn.disabled=selectedStampIndex<0;
-    stampModeBtn.classList.toggle('stamp-mode-on',stampMode);
-    stampModeBtn.textContent=stampMode?'Stamping — click canvas':'Stamp selected';
-    svgCanvas.style.cursor=stampMode?'copy':'crosshair';
-  }
 
   // Positions are stored as FRACTIONS (0–1) of the canvas, not raw pixels.
   // That's what makes on-screen placement land exactly under the cursor
@@ -1158,13 +1206,14 @@
       id: ++placedIdCounter,
       stampIndex: selectedStampIndex,
       fx, fy,
-      scale: stamps[selectedStampIndex].scale
+      scale: stamps[selectedStampIndex].scale,
+      color: stampColorInput.value
     });
     renderSvgCanvas();
   }
 
   function updateGhost(e){
-    if (!stampMode || selectedStampIndex < 0){ stampGhost.hidden = true; return; }
+    if (selectedStampIndex < 0){ stampGhost.hidden = true; return; }
     const stamp = stamps[selectedStampIndex];
     if (!stamp){ stampGhost.hidden = true; return; }
     const { fx, fy } = getFractionalPos(e);
@@ -1176,7 +1225,7 @@
     stampGhost.style.width = `${widthPct}%`;
     stampGhost.style.height = `${heightPct}%`;
     stampGhost.innerHTML = '';
-    stampGhost.appendChild(svgElement(stamp.text));
+    stampGhost.appendChild(svgElement(coloredSvgText(stamp.text, stampColorInput.value)));
     stampGhost.hidden = false;
   }
 
@@ -1184,21 +1233,15 @@
   svgCanvas.addEventListener('pointerleave', () => { stampGhost.hidden = true; });
 
   svgCanvas.addEventListener('click', e => {
-    if (stampMode && selectedStampIndex >= 0){
+    if (selectedStampIndex >= 0){
       placeStampAt(e);
       return;
     }
-    // Clicking empty canvas space while not placing deselects any stamp.
-    if (!stampMode && (e.target === svgCanvas || e.target === referencePhoto || e.target === stampLayer)){
+    // Clicking empty canvas space while nothing is armed deselects any stamp.
+    if (e.target === svgCanvas || e.target === referencePhoto || e.target === stampLayer){
       deselectStamp();
     }
   });
-
-  function selectPlacedStamp(id){
-    selectedPlacedId = id;
-    deleteStampBtn.disabled = false;
-    renderSvgCanvas();
-  }
 
   function deselectStamp(){
     if (selectedPlacedId === null) { deleteStampBtn.disabled = true; return; }
@@ -1245,19 +1288,50 @@
       wrapper.style.top = `${p.fy * 100}%`;
       wrapper.style.width = `${(vw * (p.scale / 100) / CANVAS_PX) * 100}%`;
       wrapper.style.height = `${(vh * (p.scale / 100) / CANVAS_PX) * 100}%`;
-      wrapper.appendChild(svgElement(stamp.text));
-      wrapper.addEventListener('click', ev => {
-        if (stampMode) return; // let the click bubble up and place a new stamp instead
+      wrapper.appendChild(svgElement(coloredSvgText(stamp.text, p.color)));
+
+      // Click-to-select and drag-to-reposition. When a library stamp is
+      // armed (selectedStampIndex >= 0) we deliberately do nothing here and
+      // let the event bubble up to svgCanvas, so clicking on top of an
+      // existing stamp still places a new one there.
+      wrapper.addEventListener('pointerdown', ev => {
+        if (selectedStampIndex >= 0) return;
         ev.stopPropagation();
-        selectPlacedStamp(p.id);
+        ev.preventDefault();
+        if (selectedPlacedId !== p.id){
+          const prev = stampLayer.querySelector('.stamp-wrapper.selected');
+          if (prev) prev.classList.remove('selected');
+          selectedPlacedId = p.id;
+          wrapper.classList.add('selected');
+          deleteStampBtn.disabled = false;
+        }
+        draggingPlacedId = p.id;
+        wrapper.classList.add('dragging');
+        wrapper.setPointerCapture(ev.pointerId);
       });
+      wrapper.addEventListener('pointermove', ev => {
+        if (draggingPlacedId !== p.id) return;
+        const pos = getFractionalPos(ev);
+        p.fx = pos.fx; p.fy = pos.fy;
+        wrapper.style.left = `${pos.fx * 100}%`;
+        wrapper.style.top = `${pos.fy * 100}%`;
+      });
+      const endDrag = () => {
+        if (draggingPlacedId !== p.id) return;
+        draggingPlacedId = null;
+        wrapper.classList.remove('dragging');
+      };
+      wrapper.addEventListener('pointerup', endDrag);
+      wrapper.addEventListener('pointercancel', endDrag);
+
       stampLayer.appendChild(wrapper);
     }
   }
 
   remarkCornersBtn.addEventListener('click',()=>{
-    stampMode=false; deselectStamp(); stampGhost.hidden=true; updateStampModeButton();
-    showAlignScreen(); setStage('align'); redrawSource(); updateSourceHint();
+    selectedStampIndex = -1; deselectStamp(); stampGhost.hidden = true;
+    renderStampLibrary(); updateCanvasCursor();
+    showAlignScreen(); redrawSource(); updateSourceHint();
   });
 
   function buildExportSvg(){
@@ -1272,11 +1346,12 @@
     for(const p of placedStamps){
       const stamp=stamps[p.stampIndex]; if(!stamp)continue;
       const [vx,vy,vw,vh]=stamp.viewBox;
-      const parsed=new DOMParser().parseFromString(stamp.text,'image/svg+xml');
+      const parsed=new DOMParser().parseFromString(coloredSvgText(stamp.text, p.color),'image/svg+xml');
       const source=parsed.documentElement;
       const group=doc.createElementNS(NS,'g');
       const x = p.fx * CANVAS_PX, y = p.fy * CANVAS_PX;
-      group.setAttribute('transform',`translate(${x} ${y}) scale(${p.scale / 100}) translate(${-vx} ${-vy})`);
+      const cx = vx + vw / 2, cy = vy + vh / 2; // shape's own center, in its local viewBox space
+      group.setAttribute('transform',`translate(${x} ${y}) scale(${p.scale / 100}) translate(${-cx} ${-cy})`);
       for(const child of [...source.childNodes]) group.appendChild(doc.importNode(child,true));
       root.appendChild(group);
     }
@@ -1290,20 +1365,11 @@
   });
 
   function resetStamps(){
-    stamps=[]; selectedStampIndex=-1; placedStamps=[]; selectedPlacedId=null;
-    stampMode=false; stampScaleInput.value=100; deleteStampBtn.disabled=true;
-    stampGhost.hidden=true; renderStampLibrary();
+    stamps=[]; selectedStampIndex=-1; placedStamps=[]; selectedPlacedId=null; draggingPlacedId=null;
+    stampScaleInput.value=100; stampColorInput.value='#1a1918'; deleteStampBtn.disabled=true;
+    stampGhost.hidden=true; renderStampLibrary(); updateCanvasCursor();
   }
 
-  /* =========================================================
-     STAGE INDICATOR
-     ========================================================= */
-
-  function setStage(stage){
-    stageAlign.classList.toggle('active', stage === 'align');
-    stageWarp.classList.toggle('active', stage === 'warp');
-    stageDraw.classList.toggle('active', stage === 'draw');
-  }
 
 })();
 </script>
