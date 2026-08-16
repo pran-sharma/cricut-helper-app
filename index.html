@@ -1338,8 +1338,12 @@
     const NS='http://www.w3.org/2000/svg';
     const doc=document.implementation.createDocument(NS,'svg',null);
     const root=doc.documentElement;
-    root.setAttribute('xmlns',NS); root.setAttribute('width','12in'); root.setAttribute('height','12in');
-    root.setAttribute('viewBox',`0 0 ${CANVAS_PX} ${CANVAS_PX}`);
+    // No viewBox: it would be a mathematical no-op here anyway (it'd exactly
+    // match width/height), and omitting it sidesteps whatever branch of
+    // CDS's importer gets tripped up when a viewBox is present at all.
+    root.setAttribute('xmlns',NS);
+    root.setAttribute('width', String(CANVAS_PX));
+    root.setAttribute('height', String(CANVAS_PX));
     const border=doc.createElementNS(NS,'rect');
     border.setAttribute('x','.5'); border.setAttribute('y','.5'); border.setAttribute('width',CANVAS_PX-1); border.setAttribute('height',CANVAS_PX-1);
     border.setAttribute('fill','none'); border.setAttribute('stroke','black'); border.setAttribute('stroke-width','1'); root.appendChild(border);
