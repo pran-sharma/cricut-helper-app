@@ -422,22 +422,39 @@
   .stamp-name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-top:6px;font:500 .68rem var(--font-mono);color:var(--text-dim)}
   .stamp-library-empty{grid-column:1/-1;color:var(--text-faint);font:500 .75rem var(--font-mono);padding:12px 0}
   .stamp-mode-on{outline:2px solid var(--guide);outline-offset:2px}
-  .svg-canvas-wrap{width:min(100%,560px);aspect-ratio:1/1}
+  .svg-canvas-wrap{width:min(100%,560px);aspect-ratio:var(--canvas-ar, 1/1)}
   .svg-canvas{position:relative;width:100%;height:100%;background:#faf9f5;overflow:hidden;cursor:crosshair}
-  .svg-canvas:after{content:"";position:absolute;inset:0;border:1px solid #121110;pointer-events:none;z-index:3}
+  .svg-canvas:after{content:"";position:absolute;inset:0;border:1px solid #121110;pointer-events:none;z-index:4}
 
   /* Reference photo — visual guide only, always excluded from SVG export */
   .reference-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;z-index:0}
   .reference-photo.hidden{display:none}
 
-  #stampLayer{position:absolute;inset:0;pointer-events:none;z-index:1}
+  /* Dashed boundary marking the 0.25in no-go margin; purely visual. */
+  .margin-guide{
+    position:absolute;
+    pointer-events:none;
+    z-index:1;
+    border:1.5px dashed rgba(226,84,58,0.65);
+    box-shadow: 0 0 0 1000px rgba(18,17,16,0.28);
+  }
+
+  /* Static 0.25x0.25in registration square, exported for CDS alignment. */
+  .registration-mark{
+    position:absolute;
+    pointer-events:none;
+    z-index:1;
+    background:#121110;
+  }
+
+  #stampLayer{position:absolute;inset:0;pointer-events:none;z-index:2}
 
   .stamp-wrapper{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;cursor:grab;user-select:none;touch-action:none}
   .stamp-wrapper svg{width:100%;height:100%;display:block;pointer-events:none}
   .stamp-wrapper.selected{outline:2px dashed var(--guide);outline-offset:4px;border-radius:2px}
   .stamp-wrapper.dragging{cursor:grabbing}
 
-  .stamp-ghost{position:absolute;transform:translate(-50%,-50%);pointer-events:none;opacity:.5;z-index:2}
+  .stamp-ghost{position:absolute;transform:translate(-50%,-50%);pointer-events:none;opacity:.5;z-index:3}
   .stamp-ghost svg{width:100%;height:100%;display:block}
   @media (prefers-reduced-motion: reduce){
     *{ transition: none !important; animation: none !important; }
@@ -472,6 +489,14 @@
       <div class="panel-eyebrow">01 — ALIGN</div>
       <h2>Mark the four corners</h2>
       <p class="hint" id="sourceHint">Click the four corners you want to straighten. Drag any point to fine-tune it.</p>
+      <div class="controls-row" style="margin-bottom:14px">
+        <label class="scale-control">Canvas size
+          <select id="canvasSizeSelect">
+            <option value="12x12">12 × 12 in</option>
+            <option value="12x24">12 × 24 in</option>
+          </select>
+        </label>
+      </div>
       <div class="canvas-wrap">
         <canvas id="sourceCanvas"></canvas>
       </div>
@@ -489,7 +514,7 @@
     <div class="panel preview-panel" id="previewPanel">
       <div class="panel-eyebrow">PREVIEW</div>
       <h2>Selected square</h2>
-      <p class="hint">This is the flattened 12 × 12 in area you will work on. It updates as you adjust the corners.</p>
+      <p class="hint" id="previewHint">This is the flattened 12 × 12 in area you will work on. It updates as you adjust the corners.</p>
       <div class="canvas-wrap preview-wrap">
         <canvas id="previewCanvas"></canvas>
       </div>
@@ -499,22 +524,27 @@
     <!-- Result panel -->
     <div class="panel result-panel preview-hidden" id="resultPanel">
       <div class="panel-eyebrow">02 — PLACE STAMPS</div>
-      <h2>Your 12 × 12 in canvas</h2>
+      <h2 id="resultHeading">Your 12 × 12 in canvas</h2>
       <p class="hint" id="resultHint">Upload SVG shapes, choose one from the stamp list, set its scale, then click the canvas to place it.</p>
       <div class="canvas-wrap svg-canvas-wrap">
-        <div id="svgCanvas" class="svg-canvas" aria-label="12 by 12 inch canvas">
+        <div id="svgCanvas" class="svg-canvas" aria-label="stamp placement canvas">
           <img id="referencePhoto" class="reference-photo" alt="Squared reference photo (not included in the export)">
+          <div id="marginGuide" class="margin-guide"></div>
+          <div id="registrationMark" class="registration-mark" title="0.25 x 0.25 in registration square, exported for aligning in CDS"></div>
           <div id="stampLayer"></div>
           <div id="stampGhost" class="stamp-ghost" hidden></div>
         </div>
       </div>
       <div class="result-meta" id="resultMeta">12 × 12 in · SVG output</div>
-      <p class="hint" id="stampHelpHint">Click a stamp below to arm it, then click the canvas to place it. Click a placed stamp to select it — drag to move, or delete it. Click the armed stamp again to stop placing.</p>
+      <p class="hint" id="stampHelpHint">Click a stamp below to arm it, then click the canvas to place it. Click a placed stamp to select it — drag to move, scroll to scale, shift+scroll to rotate, or delete it. Click the armed stamp again to stop placing.</p>
       <div class="stamp-controls">
         <input id="svgInput" type="file" accept=".svg,image/svg+xml" multiple hidden>
         <button class="btn" id="uploadSvgBtn">Upload SVG shapes</button>
         <label class="scale-control">Scale
           <input type="number" id="stampScale" value="100" min="1" max="1000" step="1"> %
+        </label>
+        <label class="scale-control">Rotate
+          <input type="number" id="stampRotation" value="0" min="-360" max="360" step="1"> °
         </label>
         <label class="scale-control">Color
           <input type="color" id="stampColor" value="#1a1918">
@@ -522,6 +552,12 @@
         <button class="btn" id="deleteStampBtn" disabled>Delete stamp</button>
         <button class="btn" id="toggleRefBtn">Hide reference photo</button>
         <button class="btn" id="remarkCornersBtn">Remark corners</button>
+      </div>
+      <div class="stamp-controls">
+        <label class="scale-control">File name
+          <input type="text" id="exportFilename" value="cricut-canvas" spellcheck="false">
+        </label>
+        <span class="stamp-status">.svg</span>
         <button class="btn primary" id="downloadBtn">Download SVG</button>
       </div>
       <div class="stamp-library" id="stampLibrary">
@@ -567,11 +603,50 @@
   let placedStamps = [];
   let selectedPlacedId = null;
   let draggingPlacedId = null;
+  let dragOffsetFx = 0, dragOffsetFy = 0;
+  let lastCanvasPointerEvent = null;
   let placedIdCounter = 0;
   let referenceVisible = true;
-  const CANVAS_INCHES = 12;
-  const SVG_PX_PER_INCH = 96;
-  const CANVAS_PX = CANVAS_INCHES * SVG_PX_PER_INCH;
+
+  // Canvas physical size is user-selectable (12x12 or 12x24 in, matching
+  // standard Cricut mat sizes) on the align screen, before corners are
+  // confirmed. Everything downstream (preview, stamp canvas, export) derives
+  // from these two values.
+  let CANVAS_W_IN = 12;
+  let CANVAS_H_IN = 12;
+
+  // Cricut Design Space's SVG importer assumes 72 user units = 1 inch (not
+  // the more common 96), confirmed by testing: exporting at 96 u/in made a
+  // 12in canvas import as 16in in CDS (12 * 96/72 = 16). Exporting in CDS's
+  // own assumed density keeps the physical size correct on import.
+  const SVG_PX_PER_INCH = 72;
+  let CANVAS_PX_W = CANVAS_W_IN * SVG_PX_PER_INCH;
+  let CANVAS_PX_H = CANVAS_H_IN * SVG_PX_PER_INCH;
+
+  // A 0.25in no-go margin around the edge, plus a 0.25in registration
+  // square flush against its top-left inside corner (both in export units).
+  // Fractions are recomputed per-axis whenever the canvas size changes,
+  // since width and height can now differ (e.g. 12x24).
+  const MARGIN_IN = 0.25;
+  const MARGIN_PX = MARGIN_IN * SVG_PX_PER_INCH;
+  const REG_SIZE_IN = 0.25;
+  const REG_SIZE_PX = REG_SIZE_IN * SVG_PX_PER_INCH;
+  let MARGIN_FRAC_X, MARGIN_FRAC_Y, REG_SIZE_FRAC_X, REG_SIZE_FRAC_Y;
+
+  function recomputeCanvasDerived(){
+    CANVAS_PX_W = CANVAS_W_IN * SVG_PX_PER_INCH;
+    CANVAS_PX_H = CANVAS_H_IN * SVG_PX_PER_INCH;
+    MARGIN_FRAC_X = MARGIN_PX / CANVAS_PX_W;
+    MARGIN_FRAC_Y = MARGIN_PX / CANVAS_PX_H;
+    REG_SIZE_FRAC_X = REG_SIZE_PX / CANVAS_PX_W;
+    REG_SIZE_FRAC_Y = REG_SIZE_PX / CANVAS_PX_H;
+  }
+  recomputeCanvasDerived();
+
+  function canvasLabel(){
+    const fmt = n => (Number.isInteger(n) ? n : n.toFixed(2));
+    return `${fmt(CANVAS_W_IN)} × ${fmt(CANVAS_H_IN)} in`;
+  }
 
   /* =========================================================
      DOM REFS
@@ -584,6 +659,7 @@
   const sourceCanvas   = document.getElementById('sourceCanvas');
   const sourceCtx      = sourceCanvas.getContext('2d');
   const sourceHint     = document.getElementById('sourceHint');
+  const canvasSizeSelect = document.getElementById('canvasSizeSelect');
   const sourcePanel     = document.getElementById('sourcePanel');
   const resultPanel     = document.getElementById('resultPanel');
   const previewActions  = document.getElementById('previewActions');
@@ -594,6 +670,7 @@
   const magnifierCtx    = magnifierCanvas.getContext('2d');
 
   const previewPanel = document.getElementById('previewPanel');
+  const previewHint = document.getElementById('previewHint');
   const previewCanvas = document.getElementById('previewCanvas');
   const previewCtx = previewCanvas.getContext('2d');
   const previewMeta = document.getElementById('previewMeta');
@@ -601,20 +678,26 @@
   const newImageBtn     = document.getElementById('newImageBtn');
 
   const resultHint     = document.getElementById('resultHint');
+  const resultHeading  = document.getElementById('resultHeading');
   const resultMeta     = document.getElementById('resultMeta');
   const stampHelpHint  = document.getElementById('stampHelpHint');
   const svgCanvas      = document.getElementById('svgCanvas');
   const referencePhoto = document.getElementById('referencePhoto');
+  const marginGuide    = document.getElementById('marginGuide');
+  const registrationMark = document.getElementById('registrationMark');
   const stampLayer     = document.getElementById('stampLayer');
   const stampGhost     = document.getElementById('stampGhost');
+  const stampBadge     = document.getElementById('stampBadge');
   const svgInput       = document.getElementById('svgInput');
   const uploadSvgBtn   = document.getElementById('uploadSvgBtn');
   const stampScaleInput= document.getElementById('stampScale');
+  const stampRotationInput = document.getElementById('stampRotation');
   const stampColorInput= document.getElementById('stampColor');
   const deleteStampBtn = document.getElementById('deleteStampBtn');
   const toggleRefBtn   = document.getElementById('toggleRefBtn');
   const remarkCornersBtn = document.getElementById('remarkCornersBtn');
   const downloadBtn    = document.getElementById('downloadBtn');
+  const exportFilenameInput = document.getElementById('exportFilename');
   const stampLibrary   = document.getElementById('stampLibrary');
   const stampLibraryEmpty = document.getElementById('stampLibraryEmpty');
 
@@ -671,7 +754,7 @@
     sourceCanvas.width  = Math.max(1, Math.round(img.naturalWidth * dScale));
     sourceCanvas.height = Math.max(1, Math.round(img.naturalHeight * dScale));
     previewCanvas.width = 720;
-    previewCanvas.height = 720;
+    previewCanvas.height = Math.round(720 * (CANVAS_H_IN / CANVAS_W_IN));
 
     points = [];
     confirmedCorners = false;
@@ -993,17 +1076,17 @@
     };
   }
 
-  // Resamples srcImageData into dstImageData (size x size) using H to map
+  // Resamples srcImageData into dstImageData (outW x outH) using H to map
   // each destination pixel back to its source coordinate, with bilinear
   // interpolation. H must be the DEST -> SOURCE mapping.
-  function warpImage(srcImageData, dstImageData, H, size){
+  function warpImage(srcImageData, dstImageData, H, outW, outH){
     const sw = srcImageData.width, sh = srcImageData.height;
     const sData = srcImageData.data, dData = dstImageData.data;
 
-    for (let y = 0; y < size; y++){
-      for (let x = 0; x < size; x++){
+    for (let y = 0; y < outH; y++){
+      for (let x = 0; x < outW; x++){
         const s = applyHomography(H, x + 0.5, y + 0.5);
-        const di = (y * size + x) * 4;
+        const di = (y * outW + x) * 4;
 
         if (s.x >= 0 && s.x < sw - 1 && s.y >= 0 && s.y < sh - 1){
           const x0 = Math.floor(s.x), y0 = Math.floor(s.y);
@@ -1035,21 +1118,22 @@
 
   function renderSquarePreview(){
     if (points.length !== 4 || !processImageData) return;
-    const size = 720;
-    previewCanvas.width = size;
-    previewCanvas.height = size;
+    const w = 720;
+    const h = Math.round(720 * (CANVAS_H_IN / CANVAS_W_IN));
+    previewCanvas.width = w;
+    previewCanvas.height = h;
     const scaleX = processCanvas.width / sourceCanvas.width;
     const scaleY = processCanvas.height / sourceCanvas.height;
     const srcPts = points.map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
     const ordered = orderPoints(srcPts);
-    const dstSquare = [
-      {x:0,y:0},{x:size,y:0},{x:size,y:size},{x:0,y:size}
+    const dstRect = [
+      {x:0,y:0},{x:w,y:0},{x:w,y:h},{x:0,y:h}
     ];
-    const H = computeHomography(dstSquare, ordered);
-    const out = previewCtx.createImageData(size, size);
-    warpImage(processImageData, out, H, size);
+    const H = computeHomography(dstRect, ordered);
+    const out = previewCtx.createImageData(w, h);
+    warpImage(processImageData, out, H, w, h);
     previewCtx.putImageData(out, 0, 0);
-    previewMeta.textContent = 'Live preview · final canvas: 12 × 12 in';
+    previewMeta.textContent = `Live preview · final canvas: ${canvasLabel()}`;
   }
 
   /* =========================================================
@@ -1058,7 +1142,7 @@
 
   function performWarp(){
     if (points.length !== 4 || !processImageData) return;
-    resultHint.textContent = 'Preparing your 12 × 12 in canvas…';
+    resultHint.textContent = `Preparing your ${canvasLabel()} canvas…`;
     setTimeout(() => {
       // The photo is shown as a visual reference layer only — it is never
       // included in the SVG export, which contains stamped shapes alone.
@@ -1071,9 +1155,10 @@
       placedStamps = [];
       selectedPlacedId = null;
       deleteStampBtn.disabled = true;
+      updateCanvasGuides();
       renderSvgCanvas();
-      resultHint.textContent = 'Your 12 × 12 in canvas is ready.';
-      resultMeta.textContent = '12 × 12 in · SVG output · reference photo excluded';
+      resultHint.textContent = `Your ${canvasLabel()} canvas is ready.`;
+      resultMeta.textContent = `${canvasLabel()} · SVG output · reference photo excluded`;
     }, 10);
   }
 
@@ -1088,10 +1173,45 @@
     referenceVisible = true;
     toggleRefBtn.textContent = 'Hide reference photo';
     deleteStampBtn.disabled = true;
-    resultHint.textContent = 'Confirm the corners to create the 12 × 12 in canvas.';
-    resultMeta.textContent = '12 × 12 in · SVG output';
+    resultHint.textContent = `Confirm the corners to create the ${canvasLabel()} canvas.`;
+    resultMeta.textContent = `${canvasLabel()} · SVG output`;
     updateCanvasCursor();
   }
+
+  canvasSizeSelect.addEventListener('change', () => {
+    const [w, h] = canvasSizeSelect.value.split('x').map(Number);
+    CANVAS_W_IN = w; CANVAS_H_IN = h;
+    recomputeCanvasDerived();
+    resetStamps();
+    updateCanvasGuides();
+    updateCanvasLabels();
+    if (points.length === 4) renderSquarePreview();
+  });
+
+  // Positions/sizes the static margin-guide and registration-mark overlays,
+  // and syncs the stamp canvas's on-screen aspect ratio to the chosen
+  // physical size. Call whenever the canvas size changes.
+  function updateCanvasGuides(){
+    svgCanvas.parentElement.style.setProperty('--canvas-ar', `${CANVAS_W_IN} / ${CANVAS_H_IN}`);
+    marginGuide.style.left = `${MARGIN_FRAC_X * 100}%`;
+    marginGuide.style.top = `${MARGIN_FRAC_Y * 100}%`;
+    marginGuide.style.right = `${MARGIN_FRAC_X * 100}%`;
+    marginGuide.style.bottom = `${MARGIN_FRAC_Y * 100}%`;
+    registrationMark.style.left = `${MARGIN_FRAC_X * 100}%`;
+    registrationMark.style.top = `${MARGIN_FRAC_Y * 100}%`;
+    registrationMark.style.width = `${REG_SIZE_FRAC_X * 100}%`;
+    registrationMark.style.height = `${REG_SIZE_FRAC_Y * 100}%`;
+  }
+
+  function updateCanvasLabels(){
+    const label = canvasLabel();
+    previewHint.textContent = `This is the flattened ${label} area you will work on. It updates as you adjust the corners.`;
+    resultHeading.textContent = `Your ${label} canvas`;
+    resultMeta.textContent = `${label} · SVG output`;
+  }
+
+  updateCanvasGuides();
+  updateCanvasLabels();
 
   uploadSvgBtn.addEventListener('click', () => svgInput.click());
 
@@ -1102,7 +1222,7 @@
         const text = await file.text();
         const parsed = parseSvg(text);
         if (!parsed) throw new Error('Invalid SVG: it needs a usable viewBox or width/height.');
-        stamps.push({name:file.name, text:parsed.text, viewBox:parsed.viewBox, scale:100});
+        stamps.push({name:file.name, text:parsed.text, viewBox:parsed.viewBox, scale:100, rotation:0, color:'#1a1918'});
       } catch(err) { console.warn(err); }
     }
     svgInput.value='';
@@ -1132,7 +1252,6 @@
   // "stamp mode" toggle — the library selection IS the mode.
   function selectStamp(index){
     selectedStampIndex=index;
-    stampScaleInput.value=stamps[index]?.scale ?? 100;
     deselectStamp();
     renderStampLibrary();
     updateCanvasCursor();
@@ -1149,8 +1268,8 @@
       const name=document.createElement('div'); name.className='stamp-name'; name.textContent=stamp.name;
       card.append(thumb,name);
       card.onclick=()=>{
-        if (selectedStampIndex === i){ selectedStampIndex = -1; }
-        else { selectedStampIndex = i; stampScaleInput.value = stamps[i].scale; deselectStamp(); }
+        selectedStampIndex = (selectedStampIndex === i) ? -1 : i;
+        deselectStamp();
         renderStampLibrary();
         updateCanvasCursor();
       };
@@ -1182,16 +1301,101 @@
     svgCanvas.style.cursor = selectedStampIndex >= 0 ? 'copy' : 'crosshair';
   }
 
+  /* ---------------------------------------------------------
+     Unified edit target: the Scale / Rotate / Color controls
+     (and scroll-to-scale / shift+scroll-to-rotate) always act on
+     whichever is "active" — a selected placed stamp takes priority,
+     otherwise the currently-armed library stamp (setting its defaults
+     for the *next* placement).
+     --------------------------------------------------------- */
+
+  function currentEditTarget(){
+    if (selectedPlacedId !== null){
+      const p = placedStamps.find(x => x.id === selectedPlacedId);
+      if (p) return { kind:'placed', obj:p };
+    }
+    if (selectedStampIndex >= 0 && stamps[selectedStampIndex]){
+      return { kind:'library', obj: stamps[selectedStampIndex] };
+    }
+    return null;
+  }
+
+  function syncControlsFromTarget(){
+    const t = currentEditTarget();
+    if (!t){
+      stampScaleInput.value = 100;
+      stampRotationInput.value = 0;
+      stampColorInput.value = '#1a1918';
+      return;
+    }
+    stampScaleInput.value = t.obj.scale ?? 100;
+    stampRotationInput.value = t.obj.rotation ?? 0;
+    stampColorInput.value = t.obj.color ?? '#1a1918';
+  }
+
+  function refreshEditTargetVisual(target){
+    if (!target) return;
+    if (target.kind === 'placed'){
+      // Re-clamp: a bigger/rotated stamp may no longer fit where it was.
+      const stamp = stamps[target.obj.stampIndex];
+      if (stamp){
+        const { halfWFrac, halfHFrac } = getStampHalfExtentFrac(stamp.viewBox, target.obj.scale, target.obj.rotation);
+        const c = clampStampCenter(target.obj.fx, target.obj.fy, halfWFrac, halfHFrac);
+        target.obj.fx = c.fx; target.obj.fy = c.fy;
+      }
+      renderSvgCanvas();
+    } else if (lastCanvasPointerEvent){
+      updateGhost(lastCanvasPointerEvent);
+    }
+  }
+
   stampScaleInput.addEventListener('input',()=>{
-    if(selectedStampIndex<0)return;
+    const t = currentEditTarget(); if (!t) return;
     let v=Number(stampScaleInput.value); if(!Number.isFinite(v)||v<=0)v=100;
-    v=clamp(v,1,1000); stampScaleInput.value=v; stamps[selectedStampIndex].scale=v;
+    v=clamp(v,1,1000); stampScaleInput.value=v;
+    t.obj.scale=v;
+    refreshEditTargetVisual(t);
   });
+
+  stampRotationInput.addEventListener('input',()=>{
+    const t = currentEditTarget(); if (!t) return;
+    let v=Number(stampRotationInput.value); if(!Number.isFinite(v))v=0;
+    v=clamp(v,-360,360); stampRotationInput.value=v;
+    t.obj.rotation=v;
+    refreshEditTargetVisual(t);
+  });
+
+  stampColorInput.addEventListener('input',()=>{
+    const t = currentEditTarget(); if (!t) return;
+    t.obj.color = stampColorInput.value;
+    refreshEditTargetVisual(t);
+  });
+
+  // Scroll to scale; shift+scroll to rotate. Acts on whatever's currently
+  // armed or selected, wherever the cursor happens to be over the canvas.
+  svgCanvas.addEventListener('wheel', (e) => {
+    const t = currentEditTarget();
+    if (!t) return;
+    e.preventDefault();
+    const step = e.deltaY > 0 ? -5 : 5;
+    if (e.shiftKey){
+      let v = (t.obj.rotation ?? 0) + step;
+      v = clamp(v, -360, 360);
+      t.obj.rotation = v;
+      stampRotationInput.value = v;
+    } else {
+      let v = (t.obj.scale ?? 100) + step;
+      v = clamp(v, 1, 1000);
+      t.obj.scale = v;
+      stampScaleInput.value = v;
+    }
+    refreshEditTargetVisual(t);
+  }, { passive: false });
 
   // Positions are stored as FRACTIONS (0–1) of the canvas, not raw pixels.
   // That's what makes on-screen placement land exactly under the cursor
   // regardless of how large the (responsive) canvas is rendered, and it's
-  // converted to real 12in-canvas coordinates only at export time.
+  // converted to real canvas coordinates only at export time.
   function getFractionalPos(e){
     const rect = svgCanvas.getBoundingClientRect();
     return {
@@ -1200,32 +1404,64 @@
     };
   }
 
+  // Axis-aligned half-extent (as a fraction of canvas W/H) of a stamp's
+  // rendered bounding box at a given scale/rotation — used to keep the
+  // whole shape, not just its center point, inside the 0.25in margin.
+  function getStampHalfExtentFrac(viewBox, scalePercent, rotationDeg){
+    const [, , vw, vh] = viewBox;
+    const s = (scalePercent || 100) / 100;
+    const w = vw * s, h = vh * s; // in export px units
+    const rad = (rotationDeg || 0) * Math.PI / 180;
+    const aabbW = Math.abs(w * Math.cos(rad)) + Math.abs(h * Math.sin(rad));
+    const aabbH = Math.abs(w * Math.sin(rad)) + Math.abs(h * Math.cos(rad));
+    return { halfWFrac: (aabbW / 2) / CANVAS_PX_W, halfHFrac: (aabbH / 2) / CANVAS_PX_H };
+  }
+
+  // Clamps a stamp's center so its full (rotated) bounding box stays inside
+  // the usable area. Falls back to centering the usable area if the shape
+  // itself is bigger than it.
+  function clampStampCenter(fx, fy, halfWFrac, halfHFrac){
+    const minX = MARGIN_FRAC_X + halfWFrac, maxX = 1 - MARGIN_FRAC_X - halfWFrac;
+    const minY = MARGIN_FRAC_Y + halfHFrac, maxY = 1 - MARGIN_FRAC_Y - halfHFrac;
+    const cx = minX <= maxX ? clamp(fx, minX, maxX) : (MARGIN_FRAC_X + (1 - 2 * MARGIN_FRAC_X) / 2);
+    const cy = minY <= maxY ? clamp(fy, minY, maxY) : (MARGIN_FRAC_Y + (1 - 2 * MARGIN_FRAC_Y) / 2);
+    return { fx: cx, fy: cy };
+  }
+
   function placeStampAt(e){
+    const stamp = stamps[selectedStampIndex]; if (!stamp) return;
     const { fx, fy } = getFractionalPos(e);
+    const scale = stamp.scale ?? 100, rotation = stamp.rotation ?? 0, color = stamp.color ?? '#1a1918';
+    const { halfWFrac, halfHFrac } = getStampHalfExtentFrac(stamp.viewBox, scale, rotation);
+    const c = clampStampCenter(fx, fy, halfWFrac, halfHFrac);
     placedStamps.push({
       id: ++placedIdCounter,
       stampIndex: selectedStampIndex,
-      fx, fy,
-      scale: stamps[selectedStampIndex].scale,
-      color: stampColorInput.value
+      fx: c.fx, fy: c.fy,
+      scale, rotation, color
     });
     renderSvgCanvas();
   }
 
   function updateGhost(e){
+    lastCanvasPointerEvent = e;
     if (selectedStampIndex < 0){ stampGhost.hidden = true; return; }
     const stamp = stamps[selectedStampIndex];
     if (!stamp){ stampGhost.hidden = true; return; }
     const { fx, fy } = getFractionalPos(e);
+    const scale = stamp.scale ?? 100, rotation = stamp.rotation ?? 0;
     const [, , vw, vh] = stamp.viewBox;
-    const widthPct  = (vw * (stamp.scale / 100) / CANVAS_PX) * 100;
-    const heightPct = (vh * (stamp.scale / 100) / CANVAS_PX) * 100;
-    stampGhost.style.left = `${fx * 100}%`;
-    stampGhost.style.top = `${fy * 100}%`;
+    const { halfWFrac, halfHFrac } = getStampHalfExtentFrac(stamp.viewBox, scale, rotation);
+    const c = clampStampCenter(fx, fy, halfWFrac, halfHFrac);
+    const widthPct  = (vw * (scale / 100) / CANVAS_PX_W) * 100;
+    const heightPct = (vh * (scale / 100) / CANVAS_PX_H) * 100;
+    stampGhost.style.left = `${c.fx * 100}%`;
+    stampGhost.style.top = `${c.fy * 100}%`;
     stampGhost.style.width = `${widthPct}%`;
     stampGhost.style.height = `${heightPct}%`;
+    stampGhost.style.transform = `translate(-50%,-50%) rotate(${rotation}deg)`;
     stampGhost.innerHTML = '';
-    stampGhost.appendChild(svgElement(coloredSvgText(stamp.text, stampColorInput.value)));
+    stampGhost.appendChild(svgElement(coloredSvgText(stamp.text, stamp.color ?? '#1a1918')));
     stampGhost.hidden = false;
   }
 
@@ -1244,10 +1480,15 @@
   });
 
   function deselectStamp(){
-    if (selectedPlacedId === null) { deleteStampBtn.disabled = true; return; }
+    if (selectedPlacedId === null){
+      deleteStampBtn.disabled = true;
+      syncControlsFromTarget();
+      return;
+    }
     selectedPlacedId = null;
     deleteStampBtn.disabled = true;
     renderSvgCanvas();
+    syncControlsFromTarget();
   }
 
   deleteStampBtn.addEventListener('click', () => {
@@ -1256,6 +1497,7 @@
     selectedPlacedId = null;
     deleteStampBtn.disabled = true;
     renderSvgCanvas();
+    syncControlsFromTarget();
   });
 
   document.addEventListener('keydown', e => {
@@ -1268,6 +1510,7 @@
       selectedPlacedId = null;
       deleteStampBtn.disabled = true;
       renderSvgCanvas();
+      syncControlsFromTarget();
     }
   });
 
@@ -1282,12 +1525,14 @@
     for (const p of placedStamps){
       const stamp = stamps[p.stampIndex]; if (!stamp) continue;
       const [, , vw, vh] = stamp.viewBox;
+      const rotation = p.rotation || 0;
       const wrapper = document.createElement('div');
       wrapper.className = 'stamp-wrapper' + (p.id === selectedPlacedId ? ' selected' : '');
       wrapper.style.left = `${p.fx * 100}%`;
       wrapper.style.top = `${p.fy * 100}%`;
-      wrapper.style.width = `${(vw * (p.scale / 100) / CANVAS_PX) * 100}%`;
-      wrapper.style.height = `${(vh * (p.scale / 100) / CANVAS_PX) * 100}%`;
+      wrapper.style.width = `${(vw * (p.scale / 100) / CANVAS_PX_W) * 100}%`;
+      wrapper.style.height = `${(vh * (p.scale / 100) / CANVAS_PX_H) * 100}%`;
+      wrapper.style.transform = `translate(-50%,-50%) rotate(${rotation}deg)`;
       wrapper.appendChild(svgElement(coloredSvgText(stamp.text, p.color)));
 
       // Click-to-select and drag-to-reposition. When a library stamp is
@@ -1305,6 +1550,12 @@
           wrapper.classList.add('selected');
           deleteStampBtn.disabled = false;
         }
+        syncControlsFromTarget();
+        // Preserve the offset between the cursor and the stamp's anchor
+        // point, so the stamp doesn't jump to re-center under the cursor.
+        const pos = getFractionalPos(ev);
+        dragOffsetFx = p.fx - pos.fx;
+        dragOffsetFy = p.fy - pos.fy;
         draggingPlacedId = p.id;
         wrapper.classList.add('dragging');
         wrapper.setPointerCapture(ev.pointerId);
@@ -1312,9 +1563,12 @@
       wrapper.addEventListener('pointermove', ev => {
         if (draggingPlacedId !== p.id) return;
         const pos = getFractionalPos(ev);
-        p.fx = pos.fx; p.fy = pos.fy;
-        wrapper.style.left = `${pos.fx * 100}%`;
-        wrapper.style.top = `${pos.fy * 100}%`;
+        const rawFx = pos.fx + dragOffsetFx, rawFy = pos.fy + dragOffsetFy;
+        const { halfWFrac, halfHFrac } = getStampHalfExtentFrac(stamp.viewBox, p.scale, rotation);
+        const c = clampStampCenter(rawFx, rawFy, halfWFrac, halfHFrac);
+        p.fx = c.fx; p.fy = c.fy;
+        wrapper.style.left = `${p.fx * 100}%`;
+        wrapper.style.top = `${p.fy * 100}%`;
       });
       const endDrag = () => {
         if (draggingPlacedId !== p.id) return;
@@ -1342,30 +1596,45 @@
     // match width/height), and omitting it sidesteps whatever branch of
     // CDS's importer gets tripped up when a viewBox is present at all.
     root.setAttribute('xmlns',NS);
-    root.setAttribute('width', String(CANVAS_PX));
-    root.setAttribute('height', String(CANVAS_PX));
+    root.setAttribute('width', String(CANVAS_PX_W));
+    root.setAttribute('height', String(CANVAS_PX_H));
     const border=doc.createElementNS(NS,'rect');
-    border.setAttribute('x','.5'); border.setAttribute('y','.5'); border.setAttribute('width',CANVAS_PX-1); border.setAttribute('height',CANVAS_PX-1);
+    border.setAttribute('x','.5'); border.setAttribute('y','.5');
+    border.setAttribute('width',CANVAS_PX_W-1); border.setAttribute('height',CANVAS_PX_H-1);
     border.setAttribute('fill','none'); border.setAttribute('stroke','black'); border.setAttribute('stroke-width','1'); root.appendChild(border);
+
+    // 0.25 x 0.25in registration square, flush against the inside corner of
+    // the margin, to help position everything else relative to it in CDS.
+    const reg=doc.createElementNS(NS,'rect');
+    reg.setAttribute('x', String(MARGIN_PX)); reg.setAttribute('y', String(MARGIN_PX));
+    reg.setAttribute('width', String(REG_SIZE_PX)); reg.setAttribute('height', String(REG_SIZE_PX));
+    reg.setAttribute('fill', '#000000'); root.appendChild(reg);
+
     for(const p of placedStamps){
       const stamp=stamps[p.stampIndex]; if(!stamp)continue;
       const [vx,vy,vw,vh]=stamp.viewBox;
       const parsed=new DOMParser().parseFromString(coloredSvgText(stamp.text, p.color),'image/svg+xml');
       const source=parsed.documentElement;
       const group=doc.createElementNS(NS,'g');
-      const x = p.fx * CANVAS_PX, y = p.fy * CANVAS_PX;
+      const x = p.fx * CANVAS_PX_W, y = p.fy * CANVAS_PX_H;
       const cx = vx + vw / 2, cy = vy + vh / 2; // shape's own center, in its local viewBox space
-      group.setAttribute('transform',`translate(${x} ${y}) scale(${p.scale / 100}) translate(${-cx} ${-cy})`);
+      const rot = p.rotation || 0;
+      group.setAttribute('transform',`translate(${x} ${y}) rotate(${rot}) scale(${p.scale / 100}) translate(${-cx} ${-cy})`);
       for(const child of [...source.childNodes]) group.appendChild(doc.importNode(child,true));
       root.appendChild(group);
     }
     return '<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(root);
   }
 
+  function sanitizeFilename(raw){
+    let name = (raw || '').trim().replace(/\.svg$/i, '').replace(/[\\/:*?"<>|]+/g, '-').trim();
+    return name || 'cricut-canvas';
+  }
+
   downloadBtn.addEventListener('click',()=>{
     const blob=new Blob([buildExportSvg()],{type:'image/svg+xml;charset=utf-8'});
     const url=URL.createObjectURL(blob); const a=document.createElement('a');
-    a.href=url; a.download='cricut-12x12.svg'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+    a.href=url; a.download=sanitizeFilename(exportFilenameInput.value)+'.svg'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
 
   function resetStamps(){
