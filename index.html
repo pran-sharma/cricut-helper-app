@@ -417,6 +417,15 @@
   .stamp-card{min-height:110px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);padding:8px;cursor:pointer;color:var(--text);text-align:left}
   .stamp-card:hover{border-color:var(--text-dim)}
   .stamp-card.active{border-color:var(--guide);box-shadow:0 0 0 1px rgba(94,234,212,.25) inset}
+  .stamp-card:focus-visible{outline:2px solid var(--guide);outline-offset:2px}
+  .stamp-trim-btn{
+    display:block;width:100%;margin-top:6px;padding:4px 6px;
+    font:500 .64rem var(--font-mono);letter-spacing:.02em;
+    color:var(--text-faint);background:var(--panel);border:1px solid var(--border-soft);border-radius:5px;
+    cursor:pointer;transition:color .15s ease,border-color .15s ease;
+  }
+  .stamp-trim-btn:hover{color:var(--guide);border-color:var(--guide)}
+  .stamp-trim-btn:focus-visible{outline:2px solid var(--guide);outline-offset:1px}
   .stamp-thumb{height:78px;display:flex;align-items:center;justify-content:center;background:#faf9f5;border-radius:5px;overflow:hidden}
   .stamp-thumb svg{max-width:90%;max-height:90%;width:auto;height:auto}
   .stamp-name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-top:6px;font:500 .68rem var(--font-mono);color:var(--text-dim)}
@@ -703,6 +712,13 @@
 
   processCanvas = document.createElement('canvas'); // offscreen, never appended
   processCtx    = processCanvas.getContext('2d', { willReadFrequently: true });
+
+  // Off-screen (but rendered/laid-out) sandbox used to measure an uploaded
+  // SVG's actual visible content via getBBox() — that call only returns a
+  // real answer when the element is attached to the document.
+  const bboxSandbox = document.createElement('div');
+  bboxSandbox.style.cssText = 'position:fixed;left:-99999px;top:-99999px;width:1px;height:1px;overflow:visible;pointer-events:none;';
+  document.body.appendChild(bboxSandbox);
 
   /* =========================================================
      UPLOAD / DROPZONE
@@ -1247,6 +1263,45 @@
     return {text:new XMLSerializer().serializeToString(svg),viewBox:vb};
   }
 
+  // Measures the tight bounding box of an SVG's actual rendered geometry,
+  // in that SVG's own viewBox coordinate space, by briefly attaching a copy
+  // to a hidden sandbox and calling the native getBBox().
+  function measureContentBBox(svgText){
+    const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+    const el = document.importNode(doc.documentElement, true);
+    el.style.width = '600px'; el.style.height = '600px';
+    bboxSandbox.appendChild(el);
+    let box = null;
+    try {
+      const b = el.getBBox();
+      if (b && b.width > 0 && b.height > 0) box = { x:b.x, y:b.y, width:b.width, height:b.height };
+    } catch(err) { /* getBBox can throw on a genuinely empty document */ }
+    bboxSandbox.removeChild(el);
+    return box;
+  }
+
+  // Rewrites a stamp's own viewBox to tightly (with a small safety margin
+  // for stroke width, since getBBox() excludes stroke) fit its visible
+  // content, trimming away — or expanding into — any surrounding empty
+  // space in the original file. Existing placements of this stamp pick up
+  // the change automatically, since they read the stamp's viewBox live.
+  function trimStampToContent(stamp){
+    const box = measureContentBBox(stamp.text);
+    if (!box) return false;
+    const padX = box.width * 0.02, padY = box.height * 0.02;
+    const nvb = [box.x - padX, box.y - padY, box.width + padX*2, box.height + padY*2];
+    const [ovx, ovy, ovw, ovh] = stamp.viewBox;
+    const already = Math.abs(nvb[0]-ovx)<0.5 && Math.abs(nvb[1]-ovy)<0.5 &&
+                    Math.abs(nvb[2]-ovw)<0.5 && Math.abs(nvb[3]-ovh)<0.5;
+    if (already) return false;
+    const doc = new DOMParser().parseFromString(stamp.text, 'image/svg+xml');
+    const root = doc.documentElement;
+    root.setAttribute('viewBox', nvb.join(' '));
+    stamp.text = new XMLSerializer().serializeToString(root);
+    stamp.viewBox = nvb;
+    return true;
+  }
+
   // Selecting a library stamp ARMS it for placement (click canvas to stamp).
   // Clicking the already-armed stamp again disarms it. There's no separate
   // "stamp mode" toggle — the library selection IS the mode.
@@ -1261,18 +1316,41 @@
     stampLibrary.innerHTML='';
     if (!stamps.length){ stampLibrary.appendChild(stampLibraryEmpty); return; }
     stamps.forEach((stamp,i)=>{
-      const card=document.createElement('button'); card.type='button';
+      const card=document.createElement('div');
       card.className='stamp-card'+(i===selectedStampIndex?' active':'');
+      card.tabIndex=0; card.setAttribute('role','button');
+      card.setAttribute('aria-pressed', i===selectedStampIndex ? 'true' : 'false');
       const thumb=document.createElement('div'); thumb.className='stamp-thumb';
       thumb.appendChild(svgElement(stamp.text));
       const name=document.createElement('div'); name.className='stamp-name'; name.textContent=stamp.name;
-      card.append(thumb,name);
-      card.onclick=()=>{
+      const trimBtn=document.createElement('button'); trimBtn.type='button'; trimBtn.className='stamp-trim-btn';
+      trimBtn.textContent='Trim to content';
+      trimBtn.title="Crop this shape's bounding box to its visible artwork, removing empty margin";
+      card.append(thumb,name,trimBtn);
+      const activate=()=>{
         selectedStampIndex = (selectedStampIndex === i) ? -1 : i;
         deselectStamp();
         renderStampLibrary();
         updateCanvasCursor();
       };
+      card.addEventListener('click', activate);
+      card.addEventListener('keydown', (ev)=>{
+        if (ev.target === trimBtn) return;
+        if (ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); activate(); }
+      });
+      trimBtn.addEventListener('click', (ev)=>{
+        ev.stopPropagation();
+        const trimmed = trimStampToContent(stamp);
+        if (trimmed){
+          renderStampLibrary();
+          renderSvgCanvas();
+          if (selectedStampIndex === i && lastCanvasPointerEvent) updateGhost(lastCanvasPointerEvent);
+        } else {
+          const original = trimBtn.textContent;
+          trimBtn.textContent = 'Already trimmed';
+          setTimeout(()=>{ trimBtn.textContent = original; }, 1300);
+        }
+      });
       stampLibrary.appendChild(card);
     });
   }
